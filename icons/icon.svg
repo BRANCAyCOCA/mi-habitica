@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="110" fill="#17122b"/>
+  <rect x="26" y="26" width="460" height="460" rx="92" fill="none" stroke="#3d3470" stroke-width="10"/>
+  <!-- escudo -->
+  <path d="M256 92 L392 140 V268 C392 352 328 402 256 428 C184 402 120 352 120 268 V140 Z"
+        fill="#8b5cf6" stroke="#a78bfa" stroke-width="14" stroke-linejoin="round"/>
+  <path d="M256 132 L356 168 V266 C356 330 308 370 256 390 Z" fill="#7c4ce8"/>
+  <!-- espada -->
+  <g stroke-linecap="round" stroke-linejoin="round">
+    <path d="M256 150 L256 320" stroke="#f1edff" stroke-width="30"/>
+    <path d="M256 150 L256 320" stroke="#fbbf24" stroke-width="0"/>
+    <path d="M196 296 L316 296" stroke="#fbbf24" stroke-width="26"/>
+    <path d="M256 320 L256 362" stroke="#d97706" stroke-width="22"/>
+    <circle cx="256" cy="374" r="16" fill="#fbbf24"/>
+  </g>
+</svg>

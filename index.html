@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Mi Aventura — Hábitos y Metas</title>
+  <meta name="description" content="Organiza tus hábitos, tareas y metas como un juego de rol: gana experiencia, sube de nivel y canjea recompensas.">
+  <meta name="theme-color" content="#17122b">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icons/icon-180.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Mi Aventura">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800&family=Pixelify+Sans:wght@500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+  <header class="hero-bar" id="heroBar" aria-label="Estado del héroe"></header>
+
+  <main id="main">
+    <section id="view-habitos" class="view" aria-labelledby="tab-habitos"></section>
+    <section id="view-tareas" class="view" hidden aria-labelledby="tab-tareas"></section>
+    <section id="view-metas" class="view" hidden aria-labelledby="tab-metas"></section>
+    <section id="view-tienda" class="view" hidden aria-labelledby="tab-tienda"></section>
+    <section id="view-perfil" class="view" hidden aria-labelledby="tab-perfil"></section>
+  </main>
+
+  <nav class="bottom-nav" aria-label="Navegación principal">
+    <button class="nav-btn is-active" id="tab-habitos" data-tab="habitos" aria-current="page">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/><path d="m9 16 2 2 4-4"/></svg>
+      <span>Hábitos</span>
+    </button>
+    <button class="nav-btn" id="tab-tareas" data-tab="tareas">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 11 3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+      <span>Tareas</span>
+    </button>
+    <button class="nav-btn" id="tab-metas" data-tab="metas">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg>
+      <span>Metas</span>
+    </button>
+    <button class="nav-btn" id="tab-tienda" data-tab="tienda">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4Z"/><path d="M3 6h18"/><path d="M16 10a4 4 0 0 1-8 0"/></svg>
+      <span>Tienda</span>
+    </button>
+    <button class="nav-btn" id="tab-perfil" data-tab="perfil">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+      <span>Perfil</span>
+    </button>
+  </nav>
+
+  <div id="toasts" class="toasts" aria-live="polite"></div>
+
+  <dialog id="modal" class="modal"></dialog>
+
+  <script src="app.js"></script>
+</body>
+</html>

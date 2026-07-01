@@ -1,0 +1,17 @@
+{
+  "name": "Mi Aventura — Hábitos y Metas",
+  "short_name": "Mi Aventura",
+  "description": "Organiza tus hábitos, tareas y metas como un juego de rol: gana experiencia, sube de nivel y canjea recompensas.",
+  "lang": "es",
+  "start_url": ".",
+  "scope": ".",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#17122b",
+  "theme_color": "#17122b",
+  "icons": [
+    { "src": "icons/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}
