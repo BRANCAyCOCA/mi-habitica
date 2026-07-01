@@ -97,12 +97,13 @@ function defaultState() {
       totalCompleted: 0, coinsEarned: 0, coinsSpent: 0, rewardsBought: 0, deaths: 0,
       createdAt: todayStr(),
     },
-    // {id,title,notes,days:[dow],difficulty,payout,streak,best,completedToday}
+    // {id,title,notes,days:[dow],difficulty,mode:"check"|"tiempo",payout,streak,best,completedToday,todayMinutes,todayLogs,totalMinutes}
+    // mode "check": payout = monedas al completar · mode "tiempo": payout = monedas por hora
     habits: [
-      { id: uid(), title: "Estudiar", notes: "", days: [1, 2, 3, 4, 5], difficulty: "normal", payout: 10, streak: 0, best: 0, completedToday: false },
-      { id: uid(), title: "Meditar", notes: "", days: [1, 2, 3, 4, 5, 6, 0], difficulty: "facil", payout: 5, streak: 0, best: 0, completedToday: false },
-      { id: uid(), title: "Ir al gimnasio", notes: "", days: [1, 3, 5], difficulty: "dificil", payout: 12, streak: 0, best: 0, completedToday: false },
-      { id: uid(), title: "Ir a clase", notes: "", days: [1, 2, 3, 4, 5], difficulty: "normal", payout: 8, streak: 0, best: 0, completedToday: false },
+      { id: uid(), title: "Estudiar", notes: "", days: [1, 2, 3, 4, 5], difficulty: "normal", mode: "tiempo", payout: 10, streak: 0, best: 0, completedToday: false, todayMinutes: 0, todayLogs: [], totalMinutes: 0 },
+      { id: uid(), title: "Meditar", notes: "", days: [1, 2, 3, 4, 5, 6, 0], difficulty: "facil", mode: "tiempo", payout: 12, streak: 0, best: 0, completedToday: false, todayMinutes: 0, todayLogs: [], totalMinutes: 0 },
+      { id: uid(), title: "Ir al gimnasio", notes: "", days: [1, 3, 5], difficulty: "dificil", mode: "check", payout: 12, streak: 0, best: 0, completedToday: false, todayMinutes: 0, todayLogs: [], totalMinutes: 0 },
+      { id: uid(), title: "Ir a clase", notes: "", days: [1, 2, 3, 4, 5], difficulty: "normal", mode: "check", payout: 8, streak: 0, best: 0, completedToday: false, todayMinutes: 0, todayLogs: [], totalMinutes: 0 },
     ],
     todos: [],    // {id,title,notes,due,difficulty,done,doneDate}
     goals: [],    // {id,title,notes,milestones:[{id,title,done}],done}
@@ -123,10 +124,21 @@ function loadState() {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return defaultState();
     const parsed = JSON.parse(raw);
-    return { ...defaultState(), ...parsed, player: { ...defaultState().player, ...parsed.player } };
+    return normalizeState({ ...defaultState(), ...parsed, player: { ...defaultState().player, ...parsed.player } });
   } catch {
     return defaultState();
   }
+}
+
+// Completa campos que no existían en versiones anteriores de los datos
+function normalizeState(st) {
+  for (const h of st.habits) {
+    h.mode = h.mode === "tiempo" ? "tiempo" : "check";
+    h.todayMinutes = h.todayMinutes || 0;
+    h.todayLogs = Array.isArray(h.todayLogs) ? h.todayLogs : [];
+    h.totalMinutes = h.totalMinutes || 0;
+  }
+  return st;
 }
 function save() {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
@@ -224,7 +236,7 @@ function runCron() {
     const dow = parseDateStr(d).getDay();
     for (const h of state.habits) {
       if (!h.days.includes(dow)) continue;
-      const done = d === state.lastCron ? h.completedToday : false;
+      const done = d === state.lastCron ? habitDoneToday(h) : false;
       if (!done) {
         dmg += DMG_MISSED_HABIT;
         missed++;
@@ -232,7 +244,11 @@ function runCron() {
       }
     }
   }
-  for (const h of state.habits) h.completedToday = false;
+  for (const h of state.habits) {
+    h.completedToday = false;
+    h.todayMinutes = 0;
+    h.todayLogs = [];
+  }
   state.lastCron = today;
   save();
   if (dmg > 0) {
@@ -335,11 +351,17 @@ function renderHabitos() {
 
   const card = (h, activeToday) => {
     const d = DIFF[h.difficulty] || DIFF.normal;
+    const done = habitDoneToday(h);
+    const isTime = h.mode === "tiempo";
     return `
-    <div class="card ${h.completedToday ? "is-done" : ""}">
-      ${activeToday ? `
-      <button class="check-btn ${h.completedToday ? "is-checked" : ""}" data-act="toggle-habit" data-id="${h.id}"
-        aria-label="${h.completedToday ? "Desmarcar" : "Completar"} ${esc(h.title)}" aria-pressed="${h.completedToday}">
+    <div class="card ${!isTime && done ? "is-done" : ""}">
+      ${isTime ? `
+      <button class="check-btn time-btn ${done ? "is-checked" : ""}" data-act="log-time" data-id="${h.id}"
+        aria-label="Registrar tiempo de ${esc(h.title)}">
+        ${ICONS.clock}
+      </button>` : activeToday ? `
+      <button class="check-btn ${done ? "is-checked" : ""}" data-act="toggle-habit" data-id="${h.id}"
+        aria-label="${done ? "Desmarcar" : "Completar"} ${esc(h.title)}" aria-pressed="${done}">
         ${ICONS.check}
       </button>` : `
       <div class="check-btn" style="opacity:.25" aria-hidden="true">${ICONS.check}</div>`}
@@ -348,7 +370,8 @@ function renderHabitos() {
         ${h.notes ? `<div class="card-notes">${esc(h.notes)}</div>` : ""}
         <div class="card-meta">
           <span class="streak">${ICONS.flame}${h.streak} racha</span>
-          <span class="payout" aria-label="Paga ${habitPayout(h)} monedas">${ICONS.coin}+${habitPayout(h)}</span>
+          <span class="payout" aria-label="Paga ${habitPayout(h)} monedas${isTime ? " por hora" : ""}">${ICONS.coin}+${habitPayout(h)}${isTime ? "/h" : ""}</span>
+          ${isTime && h.todayMinutes ? `<span class="mins">${ICONS.clock}${fmtMin(h.todayMinutes)} hoy</span>` : ""}
           <span><span class="diff-dot" style="background:${d.color}"></span>${d.label}</span>
         </div>
         <div class="day-pills" aria-label="Días programados">
@@ -361,7 +384,7 @@ function renderHabitos() {
 
   v.innerHTML = `
     <div class="view-head">
-      <div><h2>Hábitos</h2><p class="sub">${todayHabits.length ? `${todayHabits.filter(h => h.completedToday).length} de ${todayHabits.length} completados hoy` : "Construye tu rutina diaria"}</p></div>
+      <div><h2>Hábitos</h2><p class="sub">${todayHabits.length ? `${todayHabits.filter(habitDoneToday).length} de ${todayHabits.length} completados hoy` : "Construye tu rutina diaria"}</p></div>
       <button class="btn btn-primary btn-sm" data-act="new-habit">${ICONS.plus}Nuevo</button>
     </div>
     ${state.habits.length === 0 ? `
@@ -374,16 +397,27 @@ function renderHabitos() {
     `}`;
 }
 
-// Monedas que paga un hábito: su payout propio o, si no tiene, el de su dificultad
+// Monedas que paga un hábito: su payout propio o, si no tiene, el de su dificultad.
+// En hábitos "check" es el pago por completar; en "tiempo" es la tarifa por hora.
 function habitPayout(h) {
   const n = Math.round(Number(h.payout));
   if (Number.isFinite(n) && n >= 0) return n;
   return DEFAULT_PAYOUT[h.difficulty] ?? DEFAULT_PAYOUT.normal;
 }
 
+function habitDoneToday(h) {
+  return h.mode === "tiempo" ? (h.todayMinutes || 0) > 0 : h.completedToday;
+}
+
+function fmtMin(min) {
+  if (min < 60) return `${min} min`;
+  const hs = Math.floor(min / 60), m = min % 60;
+  return m ? `${hs} h ${m} min` : `${hs} h`;
+}
+
 function toggleHabit(id) {
   const h = state.habits.find(x => x.id === id);
-  if (!h) return;
+  if (!h || h.mode === "tiempo") return;
   const xp = rewardFor(REWARD_HABIT, h.difficulty).xp;
   const coins = habitPayout(h);
   if (!h.completedToday) {
@@ -400,6 +434,91 @@ function toggleHabit(id) {
   }
   save();
   renderAll();
+}
+
+/* ---------- Hábitos por tiempo ---------- */
+function logTime(id, minutes) {
+  const h = state.habits.find(x => x.id === id);
+  if (!h || h.mode !== "tiempo") return;
+  const min = clamp(Math.round(Number(minutes)), 1, 24 * 60);
+  const coins = Math.round(habitPayout(h) * min / 60);
+  const xp = Math.max(1, Math.round(rewardFor(REWARD_HABIT, h.difficulty).xp * min / 60));
+  const first = (h.todayMinutes || 0) === 0;
+  // La racha solo cuenta en días programados; registrar en otros días paga igual
+  const streakInc = first && h.days.includes(new Date().getDay());
+  if (streakInc) {
+    h.streak++;
+    h.best = Math.max(h.best || 0, h.streak);
+  }
+  if (first) state.player.totalCompleted++;
+  h.todayMinutes = (h.todayMinutes || 0) + min;
+  h.totalMinutes = (h.totalMinutes || 0) + min;
+  h.todayLogs.push({ min, xp, coins, streakInc });
+  grant(xp, coins, `${fmtMin(h.todayMinutes)} hoy`);
+  save();
+  renderAll();
+}
+
+function undoTimeLog(id) {
+  const h = state.habits.find(x => x.id === id);
+  if (!h || !h.todayLogs?.length) return;
+  const log = h.todayLogs.pop();
+  h.todayMinutes = Math.max(0, h.todayMinutes - log.min);
+  h.totalMinutes = Math.max(0, h.totalMinutes - log.min);
+  if (log.streakInc) h.streak = Math.max(0, h.streak - 1);
+  if (h.todayMinutes === 0) state.player.totalCompleted = Math.max(0, state.player.totalCompleted - 1);
+  ungrant(log.xp, log.coins);
+  save();
+  renderAll();
+}
+
+function timeLogForm(h) {
+  if (!h) return;
+  const rate = habitPayout(h);
+  openModal(`
+    <div class="modal-inner">
+      <div class="modal-head"><h3>Registrar tiempo</h3>
+        <button class="icon-btn" data-close aria-label="Cerrar">${ICONS.x}</button></div>
+      <p class="confirm-text"><strong>${esc(h.title)}</strong> · paga ${rate} monedas por hora${h.todayMinutes ? ` · hoy llevas ${fmtMin(h.todayMinutes)}` : ""}</p>
+      <div class="field">
+        <label>Rápido</label>
+        ${segHTML("qmin", [{ val: "15", label: "15 min" }, { val: "30", label: "30 min" }, { val: "45", label: "45 min" }, { val: "60", label: "1 h" }], "")}
+      </div>
+      <div class="field" id="f-min">
+        <label for="inpMin">Minutos</label>
+        <input type="number" id="inpMin" value="30" min="1" max="1440" inputmode="numeric">
+        <div class="err">Ingresa los minutos (mínimo 1).</div>
+        <div class="hint" id="minHint"></div>
+      </div>
+      <div class="modal-actions">
+        ${h.todayLogs?.length ? `<button class="btn btn-ghost" id="btnUndoLog">Deshacer último</button>` : ""}
+        <button class="btn btn-primary" id="btnLog">${ICONS.clock}Registrar</button>
+      </div>
+    </div>`);
+  wireSeg(modal);
+  const inp = $("#inpMin", modal);
+  const hint = $("#minHint", modal);
+  const updateHint = () => {
+    const m = Math.round(Number(inp.value));
+    hint.textContent = Number.isFinite(m) && m >= 1
+      ? `${m} min te pagan ${Math.round(rate * m / 60)} monedas.` : "";
+  };
+  updateHint();
+  inp.addEventListener("input", updateHint);
+  $(`.seg[data-seg="qmin"]`, modal).addEventListener("click", e => {
+    const b = e.target.closest("button");
+    if (b) { inp.value = b.dataset.val; updateHint(); }
+  });
+  $("#btnLog", modal).addEventListener("click", () => {
+    const m = Math.round(Number(inp.value));
+    if (!Number.isFinite(m) || m < 1) { $("#f-min", modal).classList.add("has-err"); inp.focus(); return; }
+    modal.close();
+    logTime(h.id, m);
+  });
+  $("#btnUndoLog", modal)?.addEventListener("click", () => {
+    modal.close();
+    undoTimeLog(h.id);
+  });
 }
 
 function rewardFor(base, difficulty) {
@@ -590,6 +709,7 @@ function renderPerfil() {
   const v = $("#view-perfil");
   const p = state.player;
   const bestStreak = Math.max(0, ...state.habits.map(h => h.best || 0));
+  const totalMin = state.habits.reduce((s, h) => s + (h.totalMinutes || 0), 0);
 
   // gráfico: últimos 7 días de XP
   const days = [];
@@ -609,6 +729,8 @@ function renderPerfil() {
       <div class="stat-card"><div class="num">${p.totalCompleted}</div><div class="lbl">Completados</div></div>
       <div class="stat-card"><div class="num">${bestStreak}</div><div class="lbl">Mejor racha</div></div>
       <div class="stat-card"><div class="num">${p.rewardsBought}</div><div class="lbl">Recompensas</div></div>
+      <div class="stat-card"><div class="num">${fmtMin(totalMin)}</div><div class="lbl">Tiempo registrado</div></div>
+      <div class="stat-card"><div class="num">${p.coinsEarned}</div><div class="lbl">Monedas ganadas</div></div>
     </div>
     <div class="chart-card">
       <h3>XP ganado — últimos 7 días</h3>
@@ -652,7 +774,7 @@ function segValue(root, name) {
 
 function habitForm(habit) {
   const isNew = !habit;
-  const h = habit || { title: "", notes: "", days: [1, 2, 3, 4, 5, 6, 0], difficulty: "normal" };
+  const h = habit || { title: "", notes: "", days: [1, 2, 3, 4, 5, 6, 0], difficulty: "normal", mode: "check" };
   openModal(`
     <div class="modal-inner">
       <div class="modal-head"><h3>${isNew ? "Nuevo hábito" : "Editar hábito"}</h3>
@@ -678,11 +800,16 @@ function habitForm(habit) {
         ${segHTML("diff", [{ val: "facil", label: "Fácil" }, { val: "normal", label: "Normal" }, { val: "dificil", label: "Difícil" }], h.difficulty)}
         <div class="hint">Más difícil = más XP.</div>
       </div>
+      <div class="field">
+        <label>Tipo de pago</label>
+        ${segHTML("mode", [{ val: "check", label: "Al completar" }, { val: "tiempo", label: "Por tiempo" }], h.mode || "check")}
+        <div class="hint">“Por tiempo”: registras los minutos que le dedicaste y te paga proporcional.</div>
+      </div>
       <div class="field" id="f-payout">
-        <label for="inpPayout">Pago en monedas al completar</label>
+        <label for="inpPayout" id="payoutLabel">Pago en monedas al completar</label>
         <input type="number" id="inpPayout" value="${habitPayout(h)}" min="0" max="999" inputmode="numeric">
         <div class="err">El pago debe ser un número de 0 o más.</div>
-        <div class="hint">Cuántas monedas te paga este hábito cada vez que lo completes.</div>
+        <div class="hint" id="payoutHint">Cuántas monedas te paga este hábito cada vez que lo completes.</div>
       </div>
       <div class="modal-actions">
         ${isNew ? "" : `<button class="btn btn-danger" id="btnDel">${ICONS.trash}</button>`}
@@ -691,6 +818,16 @@ function habitForm(habit) {
       </div>
     </div>`);
   wireSeg(modal);
+  // La etiqueta del pago cambia según el tipo elegido
+  const updatePayoutLabel = () => {
+    const time = segValue(modal, "mode") === "tiempo";
+    $("#payoutLabel", modal).textContent = time ? "Monedas por hora" : "Pago en monedas al completar";
+    $("#payoutHint", modal).textContent = time
+      ? "Tarifa por hora: se paga proporcional (ej. 10/h → 30 min pagan 5)."
+      : "Cuántas monedas te paga este hábito cada vez que lo completes.";
+  };
+  updatePayoutLabel();
+  $(`.seg[data-seg="mode"]`, modal).addEventListener("click", updatePayoutLabel);
   $("#daysRow", modal).addEventListener("click", e => {
     const b = e.target.closest("button");
     if (!b) return;
@@ -708,10 +845,11 @@ function habitForm(habit) {
       notes: $("#inpNotes", modal).value.trim(),
       days: days.length ? days : [1, 2, 3, 4, 5, 6, 0],
       difficulty: segValue(modal, "diff") || "normal",
+      mode: segValue(modal, "mode") || "check",
       payout,
     };
     if (isNew) {
-      state.habits.push({ id: uid(), ...data, streak: 0, best: 0, completedToday: false });
+      state.habits.push({ id: uid(), ...data, streak: 0, best: 0, completedToday: false, todayMinutes: 0, todayLogs: [], totalMinutes: 0 });
       toast("Hábito creado", "info", ICONS.sparkles);
     } else {
       Object.assign(habit, data);
@@ -975,7 +1113,7 @@ function importData(file) {
         text: `Se reemplazará tu progreso actual por el del archivo (héroe: ${parsed.player.name || "sin nombre"}, nivel ${parsed.player.level || 1}). ¿Continuar?`,
         okLabel: "Importar",
         onOk: () => {
-          state = { ...defaultState(), ...parsed, player: { ...defaultState().player, ...parsed.player } };
+          state = normalizeState({ ...defaultState(), ...parsed, player: { ...defaultState().player, ...parsed.player } });
           save(); runCron(); renderAll();
           toast("Datos importados con éxito", "gain", ICONS.upload);
         },
@@ -1031,6 +1169,7 @@ document.addEventListener("click", (e) => {
   const { act, id, mid } = btn.dataset;
   const actions = {
     "toggle-habit": () => toggleHabit(id),
+    "log-time": () => timeLogForm(state.habits.find(x => x.id === id)),
     "edit-habit": () => habitForm(state.habits.find(x => x.id === id)),
     "new-habit": () => habitForm(null),
     "toggle-todo": () => toggleTodo(id),

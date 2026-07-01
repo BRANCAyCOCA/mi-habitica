@@ -242,6 +242,10 @@ h1, h2, h3 { font-family: var(--font-display); font-weight: 700; letter-spacing:
 }
 .check-btn svg { width: 24px; height: 24px; }
 
+/* Hábitos por tiempo: el reloj siempre es visible e invita a registrar */
+.check-btn.time-btn { color: var(--text-faint); }
+.check-btn.time-btn.is-checked { color: #fff; }
+
 .card-body { flex: 1; min-width: 0; }
 .card-title { font-weight: 700; font-size: 16px; overflow-wrap: break-word; }
 .card-notes { color: var(--text-dim); font-size: 13px; margin-top: 1px; }
@@ -259,6 +263,8 @@ h1, h2, h3 { font-family: var(--font-display); font-weight: 700; letter-spacing:
 .card-meta .streak svg { width: 13px; height: 13px; }
 .card-meta .payout { color: var(--gold); display: inline-flex; align-items: center; gap: 3px; }
 .card-meta .payout svg { width: 13px; height: 13px; }
+.card-meta .mins { color: var(--blue); display: inline-flex; align-items: center; gap: 3px; }
+.card-meta .mins svg { width: 13px; height: 13px; }
 .card-meta .due { display: inline-flex; align-items: center; gap: 4px; }
 .card-meta .due svg { width: 13px; height: 13px; }
 .card-meta .due.overdue { color: var(--danger); }

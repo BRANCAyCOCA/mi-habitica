@@ -6,7 +6,9 @@ Todo se guarda **localmente en tu dispositivo** (no necesita internet ni cuenta)
 ## Cómo funciona el juego
 
 - **Hábitos**: recurrentes, programados por día de la semana. Completarlos da XP, monedas y suma racha. Si no completas un hábito en un día programado, **pierdes vida (HP)**.
-- **Pago por hábito**: cada hábito tiene su propio "pago en monedas al completar", editable desde el lápiz del hábito. Así decides cuánto vale cada hábito (ej. gimnasio paga 12, meditar paga 5).
+- **Pago por hábito**: cada hábito tiene su propio pago en monedas, editable desde el lápiz del hábito. Hay dos tipos de pago:
+  - **Al completar**: paga un monto fijo al marcarlo (ej. ir al gimnasio paga 12).
+  - **Por tiempo**: registras los minutos que le dedicaste (botón de reloj, varias sesiones al día) y paga proporcional a una tarifa por hora (ej. estudiar a 10/h → 30 min pagan 5). Desde el mismo botón puedes deshacer el último registro.
 - **Tareas**: pendientes de una sola vez, con fecha límite opcional.
 - **Metas**: objetivos grandes divididos en hitos. Cada hito da XP; completar la meta entera da un bonus grande (+100 XP, +50 monedas).
 - **Tienda**: crea tus propias recompensas reales ("1 hora de videojuegos", "pedir comida") y cómpralas con las monedas que ganes.
