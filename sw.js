@@ -1,5 +1,5 @@
 /* Service worker de Mi Aventura: app disponible sin conexión */
-const CACHE = "mi-aventura-v2";
+const CACHE = "mi-aventura-v3";
 const APP_SHELL = [
   ".",
   "index.html",
@@ -32,7 +32,8 @@ self.addEventListener("fetch", (e) => {
 
   if (sameOrigin) {
     e.respondWith(
-      fetch(e.request)
+      // "no-cache": revalida siempre contra el servidor (evita servir JS viejo del caché HTTP)
+      fetch(e.request, { cache: "no-cache" })
         .then((res) => {
           if (res && res.ok) {
             const copy = res.clone();

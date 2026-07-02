@@ -88,6 +88,32 @@ function datesBetween(a, b) {
 function fmtShortDate(s) {
   return parseDateStr(s).toLocaleDateString("es", { day: "numeric", month: "short" });
 }
+function addDays(s, n) {
+  const d = parseDateStr(s);
+  d.setDate(d.getDate() + n);
+  return todayStr(d);
+}
+// Lunes de la semana a la que pertenece la fecha
+function weekStartStr(s) {
+  const d = parseDateStr(s);
+  d.setDate(d.getDate() - (d.getDay() + 6) % 7);
+  return todayStr(d);
+}
+function monthKey(s) { return s.slice(0, 7); }
+function nextMonthKey(mk) {
+  let [y, m] = mk.split("-").map(Number);
+  m++;
+  if (m > 12) { m = 1; y++; }
+  return `${y}-${String(m).padStart(2, "0")}`;
+}
+// Suma del registro de un hábito en [desde, hasta) — check: días hechos · tiempo: minutos
+function habitSumRange(h, from, toExcl) {
+  let sum = 0;
+  for (const [date, v] of Object.entries(h.log || {})) {
+    if (date >= from && date < toExcl) sum += v;
+  }
+  return sum;
+}
 
 /* ---------- Estado ---------- */
 function defaultState() {
@@ -97,13 +123,15 @@ function defaultState() {
       totalCompleted: 0, coinsEarned: 0, coinsSpent: 0, rewardsBought: 0, deaths: 0,
       createdAt: todayStr(),
     },
-    // {id,title,notes,days:[dow],difficulty,mode:"check"|"tiempo",payout,streak,best,completedToday,todayMinutes,todayLogs,totalMinutes}
+    // {id,title,notes,days:[dow],difficulty,mode:"check"|"tiempo",payout,streak,best,completedToday,todayMinutes,todayLogs,totalMinutes,
+    //  log:{fecha:valor}, goalW,goalWMin,goalM,goalMMin (check: días · tiempo: minutos; 0 = sin objetivo),
+    //  bonus (monedas premio semanal; mensual ×4; null = 2×payout), penalty (multa semanal; mensual ×4; null = payout), createdAt}
     // mode "check": payout = monedas al completar · mode "tiempo": payout = monedas por hora
     habits: [
-      { id: uid(), title: "Estudiar", notes: "", days: [1, 2, 3, 4, 5], difficulty: "normal", mode: "tiempo", payout: 10, streak: 0, best: 0, completedToday: false, todayMinutes: 0, todayLogs: [], totalMinutes: 0 },
-      { id: uid(), title: "Meditar", notes: "", days: [1, 2, 3, 4, 5, 6, 0], difficulty: "facil", mode: "tiempo", payout: 12, streak: 0, best: 0, completedToday: false, todayMinutes: 0, todayLogs: [], totalMinutes: 0 },
-      { id: uid(), title: "Ir al gimnasio", notes: "", days: [1, 3, 5], difficulty: "dificil", mode: "check", payout: 12, streak: 0, best: 0, completedToday: false, todayMinutes: 0, todayLogs: [], totalMinutes: 0 },
-      { id: uid(), title: "Ir a clase", notes: "", days: [1, 2, 3, 4, 5], difficulty: "normal", mode: "check", payout: 8, streak: 0, best: 0, completedToday: false, todayMinutes: 0, todayLogs: [], totalMinutes: 0 },
+      { id: uid(), title: "Estudiar", notes: "", days: [1, 2, 3, 4, 5], difficulty: "normal", mode: "tiempo", payout: 10, goalW: 600, goalWMin: 300, goalM: 0, goalMMin: 0, bonus: 20, penalty: 10, streak: 0, best: 0, completedToday: false, todayMinutes: 0, todayLogs: [], totalMinutes: 0, log: {}, createdAt: todayStr() },
+      { id: uid(), title: "Meditar", notes: "", days: [1, 2, 3, 4, 5, 6, 0], difficulty: "facil", mode: "tiempo", payout: 12, goalW: 0, goalWMin: 0, goalM: 0, goalMMin: 0, bonus: null, penalty: null, streak: 0, best: 0, completedToday: false, todayMinutes: 0, todayLogs: [], totalMinutes: 0, log: {}, createdAt: todayStr() },
+      { id: uid(), title: "Ir al gimnasio", notes: "", days: [1, 3, 5], difficulty: "dificil", mode: "check", payout: 12, goalW: 3, goalWMin: 0, goalM: 0, goalMMin: 0, bonus: 24, penalty: 12, streak: 0, best: 0, completedToday: false, todayMinutes: 0, todayLogs: [], totalMinutes: 0, log: {}, createdAt: todayStr() },
+      { id: uid(), title: "Ir a clase", notes: "", days: [1, 2, 3, 4, 5], difficulty: "normal", mode: "check", payout: 8, goalW: 5, goalWMin: 0, goalM: 0, goalMMin: 0, bonus: 16, penalty: 8, streak: 0, best: 0, completedToday: false, todayMinutes: 0, todayLogs: [], totalMinutes: 0, log: {}, createdAt: todayStr() },
     ],
     todos: [],    // {id,title,notes,due,difficulty,done,doneDate}
     goals: [],    // {id,title,notes,milestones:[{id,title,done}],done}
@@ -114,6 +142,8 @@ function defaultState() {
     ],
     history: {},  // {fecha: xp ganado}
     lastCron: todayStr(),
+    lastWeekEvaluated: weekStartStr(todayStr()),  // lunes de la última semana ya premiada/penalizada
+    lastMonthEvaluated: monthKey(todayStr()),     // "YYYY-MM" del último mes ya evaluado
   };
 }
 
@@ -137,7 +167,17 @@ function normalizeState(st) {
     h.todayMinutes = h.todayMinutes || 0;
     h.todayLogs = Array.isArray(h.todayLogs) ? h.todayLogs : [];
     h.totalMinutes = h.totalMinutes || 0;
+    h.log = h.log && typeof h.log === "object" ? h.log : {};
+    h.goalW = h.goalW || 0;
+    h.goalWMin = h.goalWMin || 0;
+    h.goalM = h.goalM || 0;
+    h.goalMMin = h.goalMMin || 0;
+    if (h.bonus == null || !Number.isFinite(Number(h.bonus))) h.bonus = null;
+    if (h.penalty == null || !Number.isFinite(Number(h.penalty))) h.penalty = null;
+    h.createdAt = h.createdAt || st.player?.createdAt || todayStr();
   }
+  st.lastWeekEvaluated = st.lastWeekEvaluated || weekStartStr(todayStr());
+  st.lastMonthEvaluated = st.lastMonthEvaluated || monthKey(todayStr());
   return st;
 }
 function save() {
@@ -223,13 +263,57 @@ function showDeathModal() {
     </div>`);
 }
 
-/* ---------- Cron: cambio de día ---------- */
+/* ---------- Cron: cambio de día, semana y mes ---------- */
+function habitBonus(h) { return h.bonus ?? habitPayout(h) * 2; }
+function habitPenalty(h) { return h.penalty ?? habitPayout(h); }
+
+// Evalúa un período terminado de un hábito: premio si alcanzó la meta, multa si no llegó al mínimo.
+// mult: 1 = semana, 4 = mes (el mes premia/cobra 4× y duele el doble por HP).
+function evalPeriod(h, from, toExcl, labelPeriodo, mult, events) {
+  if (from < (h.createdAt || "")) return; // no evaluar períodos previos al hábito
+  const target = mult === 1 ? h.goalW : h.goalM;
+  const min = mult === 1 ? h.goalWMin : h.goalMMin;
+  if (!target && !min) return;
+  const sum = habitSumRange(h, from, toExcl);
+  const fmt = v => h.mode === "tiempo" ? fmtMin(v) : `${v} día${v === 1 ? "" : "s"}`;
+  if (target && sum >= target) {
+    const coins = habitBonus(h) * mult, xp = 20 * mult;
+    events.push({ kind: "bonus", coins, xp, hp: 0, text: `${h.title}: ${fmt(sum)} ${labelPeriodo} (meta: ${fmt(target)}) → premio +${coins} monedas, +${xp} XP` });
+  } else if (min && sum < min) {
+    const coins = habitPenalty(h) * mult, hp = 4 * mult;
+    events.push({ kind: "penalty", coins: -coins, xp: 0, hp: -hp, text: `${h.title}: solo ${fmt(sum)} ${labelPeriodo} (mínimo: ${fmt(min)}) → multa −${coins} monedas, −${hp} HP` });
+  }
+}
+
+// Premia/penaliza todas las semanas y meses que terminaron desde la última visita
+function evaluatePeriods(events) {
+  const today = todayStr();
+  let ws = addDays(state.lastWeekEvaluated, 7);
+  let guard = 0;
+  while (addDays(ws, 7) <= today && guard++ < 60) {
+    for (const h of state.habits) evalPeriod(h, ws, addDays(ws, 7), `la semana del ${fmtShortDate(ws)}`, 1, events);
+    state.lastWeekEvaluated = ws;
+    ws = addDays(ws, 7);
+  }
+  let mk = nextMonthKey(state.lastMonthEvaluated);
+  guard = 0;
+  while (`${nextMonthKey(mk)}-01` <= today && guard++ < 24) {
+    const nombreMes = parseDateStr(`${mk}-01`).toLocaleDateString("es", { month: "long" });
+    for (const h of state.habits) evalPeriod(h, `${mk}-01`, `${nextMonthKey(mk)}-01`, `en ${nombreMes}`, 4, events);
+    state.lastMonthEvaluated = mk;
+    mk = nextMonthKey(mk);
+  }
+}
+
 function runCron() {
   const today = todayStr();
   if (state.lastCron === today) return;
   // Si la fecha guardada es futura (cambio de reloj), solo re-sincroniza.
   if (state.lastCron > today) { state.lastCron = today; save(); return; }
+  const p = state.player;
+  const events = [];
 
+  // 1) Daño por hábitos diarios incumplidos
   let dmg = 0;
   let missed = 0;
   for (const d of datesBetween(state.lastCron, today)) {
@@ -244,17 +328,71 @@ function runCron() {
       }
     }
   }
+  if (dmg > 0) {
+    dmg = Math.min(dmg, DMG_CRON_CAP);
+    events.push({ kind: "miss", coins: 0, xp: 0, hp: -dmg, text: `${missed} hábito${missed > 1 ? "s" : ""} sin completar → −${dmg} HP` });
+  }
+
+  // 2) Reset diario
   for (const h of state.habits) {
     h.completedToday = false;
     h.todayMinutes = 0;
     h.todayLogs = [];
   }
+
+  // 3) Premios y multas de semanas/meses terminados
+  evaluatePeriods(events);
+
+  // 4) Aplicar todo al héroe — primero los premios, luego las multas,
+  // para que una multa no se pierda contra el piso de 0 monedas
+  let leveled = false;
+  for (const ev of [...events].sort((a, b) => b.coins - a.coins)) {
+    p.coins = Math.max(0, p.coins + ev.coins);
+    if (ev.coins > 0) p.coinsEarned += ev.coins;
+    p.hp += ev.hp;
+    if (ev.xp > 0) {
+      p.xp += ev.xp;
+      recordHistory(ev.xp);
+      while (p.xp >= xpNeeded(p.level)) {
+        p.xp -= xpNeeded(p.level);
+        p.level++;
+        p.hp = MAX_HP;
+        leveled = true;
+      }
+    }
+  }
+  if (leveled) events.push({ kind: "level", text: `¡Subiste al nivel ${p.level}! Vida restaurada.` });
+  if (p.hp <= 0) {
+    p.deaths++;
+    p.level = Math.max(1, p.level - 1);
+    p.xp = 0;
+    p.coins = 0;
+    p.hp = MAX_HP;
+    events.push({ kind: "death", text: "Tu vida llegó a 0: pierdes 1 nivel y tus monedas. Vida restaurada." });
+  }
+
+  // 5) Limpiar registros muy viejos (conservar ~13 meses)
+  const cutoff = addDays(today, -400);
+  for (const h of state.habits) {
+    for (const k of Object.keys(h.log)) if (k < cutoff) delete h.log[k];
+  }
+
   state.lastCron = today;
   save();
-  if (dmg > 0) {
-    damage(Math.min(dmg, DMG_CRON_CAP), `${missed} hábito${missed > 1 ? "s" : ""} sin completar`);
-    save();
-  }
+  if (events.length) showCronSummary(events);
+}
+
+function showCronSummary(events) {
+  const icon = { bonus: ICONS.trophy, penalty: ICONS.skull, miss: ICONS.heart, level: ICONS.star, death: ICONS.skull };
+  openModal(`
+    <div class="modal-inner">
+      <div class="modal-head"><h3>Mientras no estabas…</h3>
+        <button class="icon-btn" data-close aria-label="Cerrar">${ICONS.x}</button></div>
+      <div class="cron-list">
+        ${events.map(e => `<div class="cron-item ${e.kind}">${icon[e.kind] || ICONS.star}<span>${esc(e.text)}</span></div>`).join("")}
+      </div>
+      <div class="modal-actions"><button class="btn btn-primary" data-close>Entendido</button></div>
+    </div>`);
 }
 
 /* ---------- Toasts ---------- */
@@ -349,10 +487,22 @@ function renderHabitos() {
   const todayHabits = state.habits.filter(isToday);
   const otherHabits = state.habits.filter(h => !isToday(h));
 
+  const today = todayStr();
+  const wStart = weekStartStr(today);
+  const mStart = `${monthKey(today)}-01`;
+
   const card = (h, activeToday) => {
     const d = DIFF[h.difficulty] || DIFF.normal;
     const done = habitDoneToday(h);
     const isTime = h.mode === "tiempo";
+    const fmtV = v => isTime ? fmtMin(v) : v;
+    const wSum = (h.goalW || h.goalWMin) ? habitSumRange(h, wStart, addDays(wStart, 7)) : 0;
+    const mSum = (h.goalM || h.goalMMin) ? habitSumRange(h, mStart, `${nextMonthKey(monthKey(today))}-01`) : 0;
+    const goalChip = (sum, target, min, lbl) => {
+      if (!target && !min) return "";
+      const hit = target && sum >= target;
+      return `<span class="goal-chip ${hit ? "hit" : ""}" title="${hit ? "¡Meta cumplida!" : "Progreso"}">${ICONS.target}${fmtV(sum)}/${fmtV(target || min)} ${lbl}</span>`;
+    };
     return `
     <div class="card ${!isTime && done ? "is-done" : ""}">
       ${isTime ? `
@@ -372,6 +522,8 @@ function renderHabitos() {
           <span class="streak">${ICONS.flame}${h.streak} racha</span>
           <span class="payout" aria-label="Paga ${habitPayout(h)} monedas${isTime ? " por hora" : ""}">${ICONS.coin}+${habitPayout(h)}${isTime ? "/h" : ""}</span>
           ${isTime && h.todayMinutes ? `<span class="mins">${ICONS.clock}${fmtMin(h.todayMinutes)} hoy</span>` : ""}
+          ${goalChip(wSum, h.goalW, h.goalWMin, "sem")}
+          ${goalChip(mSum, h.goalM, h.goalMMin, "mes")}
           <span><span class="diff-dot" style="background:${d.color}"></span>${d.label}</span>
         </div>
         <div class="day-pills" aria-label="Días programados">
@@ -422,12 +574,14 @@ function toggleHabit(id) {
   const coins = habitPayout(h);
   if (!h.completedToday) {
     h.completedToday = true;
+    h.log[todayStr()] = 1;
     h.streak++;
     h.best = Math.max(h.best || 0, h.streak);
     state.player.totalCompleted++;
     grant(xp, coins, `racha ${h.streak}`);
   } else {
     h.completedToday = false;
+    delete h.log[todayStr()];
     h.streak = Math.max(0, h.streak - 1);
     state.player.totalCompleted = Math.max(0, state.player.totalCompleted - 1);
     ungrant(xp, coins);
@@ -453,6 +607,7 @@ function logTime(id, minutes) {
   if (first) state.player.totalCompleted++;
   h.todayMinutes = (h.todayMinutes || 0) + min;
   h.totalMinutes = (h.totalMinutes || 0) + min;
+  h.log[todayStr()] = h.todayMinutes;
   h.todayLogs.push({ min, xp, coins, streakInc });
   grant(xp, coins, `${fmtMin(h.todayMinutes)} hoy`);
   save();
@@ -465,6 +620,8 @@ function undoTimeLog(id) {
   const log = h.todayLogs.pop();
   h.todayMinutes = Math.max(0, h.todayMinutes - log.min);
   h.totalMinutes = Math.max(0, h.totalMinutes - log.min);
+  if (h.todayMinutes > 0) h.log[todayStr()] = h.todayMinutes;
+  else delete h.log[todayStr()];
   if (log.streakInc) h.streak = Math.max(0, h.streak - 1);
   if (h.todayMinutes === 0) state.player.totalCompleted = Math.max(0, state.player.totalCompleted - 1);
   ungrant(log.xp, log.coins);
@@ -743,6 +900,35 @@ function renderPerfil() {
           </div>`).join("")}
       </div>
     </div>
+    ${state.habits.length ? `
+    <p class="section-label">Récords por hábito</p>
+    <div class="card-list" style="margin-bottom:18px">
+      ${state.habits.map(h => {
+        const isTime = h.mode === "tiempo";
+        const fmtV = v => isTime ? fmtMin(v) : `${v} día${v === 1 ? "" : "s"}`;
+        // mejor semana según el registro histórico
+        const porSemana = {};
+        for (const [date, val] of Object.entries(h.log || {})) {
+          const w = weekStartStr(date);
+          porSemana[w] = (porSemana[w] || 0) + val;
+        }
+        const mejorSemana = Math.max(0, ...Object.values(porSemana));
+        const wNow = habitSumRange(h, weekStartStr(todayStr()), addDays(weekStartStr(todayStr()), 7));
+        const total = isTime ? fmtMin(h.totalMinutes || 0) : `${Object.keys(h.log || {}).length} veces`;
+        return `
+        <div class="card record-card">
+          <div class="card-body">
+            <div class="card-title">${esc(h.title)}</div>
+            <div class="card-meta">
+              <span class="streak">${ICONS.flame}mejor racha: ${h.best || 0}</span>
+              <span>esta semana: ${fmtV(wNow)}</span>
+              <span>mejor semana: ${fmtV(mejorSemana)}</span>
+              <span>total: ${total}</span>
+            </div>
+          </div>
+        </div>`;
+      }).join("")}
+    </div>` : ""}
     <div class="profile-actions">
       <button class="btn btn-ghost" data-act="rename">${ICONS.pencil}Cambiar nombre de héroe</button>
       <button class="btn btn-ghost" data-act="export">${ICONS.download}Exportar mis datos</button>
@@ -772,9 +958,15 @@ function segValue(root, name) {
   return $(`.seg[data-seg="${name}"] button.on`, root)?.dataset.val;
 }
 
+// Valor de objetivo para mostrar en el formulario: tiempo se edita en horas, check en días. 0 = vacío.
+function goalVal(h, v) {
+  if (!v) return "";
+  return h.mode === "tiempo" ? Math.round((v / 60) * 10) / 10 : v;
+}
+
 function habitForm(habit) {
   const isNew = !habit;
-  const h = habit || { title: "", notes: "", days: [1, 2, 3, 4, 5, 6, 0], difficulty: "normal", mode: "check" };
+  const h = habit || { title: "", notes: "", days: [1, 2, 3, 4, 5, 6, 0], difficulty: "normal", mode: "check", goalW: 0, goalWMin: 0, goalM: 0, goalMMin: 0, bonus: null, penalty: null };
   openModal(`
     <div class="modal-inner">
       <div class="modal-head"><h3>${isNew ? "Nuevo hábito" : "Editar hábito"}</h3>
@@ -811,6 +1003,39 @@ function habitForm(habit) {
         <div class="err">El pago debe ser un número de 0 o más.</div>
         <div class="hint" id="payoutHint">Cuántas monedas te paga este hábito cada vez que lo completes.</div>
       </div>
+      <p class="section-label" style="margin-top:18px">Objetivos y premio extra (opcional)</p>
+      <div class="goal-fields">
+        <div class="field">
+          <label for="inpGoalW" id="lblGoalW">Días/semana para premio</label>
+          <input type="number" id="inpGoalW" value="${goalVal(h, h.goalW)}" min="0" step="any" inputmode="decimal" placeholder="—">
+        </div>
+        <div class="field">
+          <label for="inpGoalWMin" id="lblGoalWMin">Mínimo días/semana</label>
+          <input type="number" id="inpGoalWMin" value="${goalVal(h, h.goalWMin)}" min="0" step="any" inputmode="decimal" placeholder="—">
+        </div>
+        <div class="field">
+          <label for="inpGoalM" id="lblGoalM">Días/mes para premio</label>
+          <input type="number" id="inpGoalM" value="${goalVal(h, h.goalM)}" min="0" step="any" inputmode="decimal" placeholder="—">
+        </div>
+        <div class="field">
+          <label for="inpGoalMMin" id="lblGoalMMin">Mínimo días/mes</label>
+          <input type="number" id="inpGoalMMin" value="${goalVal(h, h.goalMMin)}" min="0" step="any" inputmode="decimal" placeholder="—">
+        </div>
+      </div>
+      <div class="hint" id="goalsHint" style="margin:-4px 0 12px">Vacío = sin objetivo. Si alcanzas la meta al cerrar la semana/mes, cobras el premio; si no llegas al mínimo, pagas la multa y pierdes vida (−4 HP semanal, −8 mensual).</div>
+      <div class="goal-fields">
+        <div class="field" id="f-bonus">
+          <label for="inpBonus">Premio semanal (monedas)</label>
+          <input type="number" id="inpBonus" value="${h.bonus ?? ""}" min="0" max="9999" inputmode="numeric" placeholder="${habitPayout(h) * 2} (auto)">
+          <div class="err">Debe ser 0 o más.</div>
+        </div>
+        <div class="field" id="f-penalty">
+          <label for="inpPenalty">Multa semanal (monedas)</label>
+          <input type="number" id="inpPenalty" value="${h.penalty ?? ""}" min="0" max="9999" inputmode="numeric" placeholder="${habitPayout(h)} (auto)">
+          <div class="err">Debe ser 0 o más.</div>
+        </div>
+      </div>
+      <div class="hint" style="margin:-4px 0 12px">El premio y la multa mensuales valen 4× los semanales.</div>
       <div class="modal-actions">
         ${isNew ? "" : `<button class="btn btn-danger" id="btnDel">${ICONS.trash}</button>`}
         <button class="btn btn-ghost" data-close>Cancelar</button>
@@ -818,13 +1043,18 @@ function habitForm(habit) {
       </div>
     </div>`);
   wireSeg(modal);
-  // La etiqueta del pago cambia según el tipo elegido
+  // Las etiquetas de pago y objetivos cambian según el tipo elegido
   const updatePayoutLabel = () => {
     const time = segValue(modal, "mode") === "tiempo";
     $("#payoutLabel", modal).textContent = time ? "Monedas por hora" : "Pago en monedas al completar";
     $("#payoutHint", modal).textContent = time
       ? "Tarifa por hora: se paga proporcional (ej. 10/h → 30 min pagan 5)."
       : "Cuántas monedas te paga este hábito cada vez que lo completes.";
+    const u = time ? "Horas" : "Días";
+    $("#lblGoalW", modal).textContent = `${u}/semana para premio`;
+    $("#lblGoalWMin", modal).textContent = `Mínimo ${u.toLowerCase()}/semana`;
+    $("#lblGoalM", modal).textContent = `${u}/mes para premio`;
+    $("#lblGoalMMin", modal).textContent = `Mínimo ${u.toLowerCase()}/mes`;
   };
   updatePayoutLabel();
   $(`.seg[data-seg="mode"]`, modal).addEventListener("click", updatePayoutLabel);
@@ -839,17 +1069,42 @@ function habitForm(habit) {
     if (!title) { $("#f-title", modal).classList.add("has-err"); $("#inpTitle", modal).focus(); return; }
     const payout = Math.round(Number($("#inpPayout", modal).value));
     if (!Number.isFinite(payout) || payout < 0) { $("#f-payout", modal).classList.add("has-err"); $("#inpPayout", modal).focus(); return; }
+    const mode = segValue(modal, "mode") || "check";
+    // Objetivos: en modo tiempo se editan en horas y se guardan en minutos
+    const readGoal = (sel) => {
+      const raw = $(sel, modal).value.trim();
+      if (!raw) return 0;
+      const n = Number(raw);
+      if (!Number.isFinite(n) || n <= 0) return 0;
+      return mode === "tiempo" ? Math.round(n * 60) : Math.round(n);
+    };
+    const readOpt = (sel, fld) => {
+      const raw = $(sel, modal).value.trim();
+      if (!raw) return null;
+      const n = Math.round(Number(raw));
+      if (!Number.isFinite(n) || n < 0) { $(fld, modal).classList.add("has-err"); return undefined; }
+      return n;
+    };
+    const bonus = readOpt("#inpBonus", "#f-bonus");
+    const penalty = readOpt("#inpPenalty", "#f-penalty");
+    if (bonus === undefined || penalty === undefined) return;
     const days = $$("#daysRow button.on", modal).map(b => Number(b.dataset.dow));
     const data = {
       title,
       notes: $("#inpNotes", modal).value.trim(),
       days: days.length ? days : [1, 2, 3, 4, 5, 6, 0],
       difficulty: segValue(modal, "diff") || "normal",
-      mode: segValue(modal, "mode") || "check",
+      mode,
       payout,
+      goalW: readGoal("#inpGoalW"),
+      goalWMin: readGoal("#inpGoalWMin"),
+      goalM: readGoal("#inpGoalM"),
+      goalMMin: readGoal("#inpGoalMMin"),
+      bonus,
+      penalty,
     };
     if (isNew) {
-      state.habits.push({ id: uid(), ...data, streak: 0, best: 0, completedToday: false, todayMinutes: 0, todayLogs: [], totalMinutes: 0 });
+      state.habits.push({ id: uid(), ...data, streak: 0, best: 0, completedToday: false, todayMinutes: 0, todayLogs: [], totalMinutes: 0, log: {}, createdAt: todayStr() });
       toast("Hábito creado", "info", ICONS.sparkles);
     } else {
       Object.assign(habit, data);

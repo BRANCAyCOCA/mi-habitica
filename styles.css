@@ -265,6 +265,22 @@ h1, h2, h3 { font-family: var(--font-display); font-weight: 700; letter-spacing:
 .card-meta .payout svg { width: 13px; height: 13px; }
 .card-meta .mins { color: var(--blue); display: inline-flex; align-items: center; gap: 3px; }
 .card-meta .mins svg { width: 13px; height: 13px; }
+.goal-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  color: var(--violet);
+  background: rgba(139, 92, 246, .12);
+  border: 1px solid rgba(139, 92, 246, .35);
+  border-radius: 999px;
+  padding: 1px 8px;
+}
+.goal-chip svg { width: 12px; height: 12px; }
+.goal-chip.hit {
+  color: var(--green);
+  background: rgba(74, 222, 128, .1);
+  border-color: rgba(74, 222, 128, .4);
+}
 .card-meta .due { display: inline-flex; align-items: center; gap: 4px; }
 .card-meta .due svg { width: 13px; height: 13px; }
 .card-meta .due.overdue { color: var(--danger); }
@@ -489,7 +505,38 @@ h1, h2, h3 { font-family: var(--font-display); font-weight: 700; letter-spacing:
   max-height: 84dvh;
   margin: auto;
   box-shadow: 0 20px 60px rgba(0,0,0,.5);
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
+
+/* Campos de objetivos en 2 columnas */
+.goal-fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0 10px;
+}
+
+/* Resumen del cron (premios, multas, daño) */
+.cron-list { display: grid; gap: 8px; margin-bottom: 4px; }
+.cron-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-deep);
+  border: 1px solid var(--border);
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+.cron-item svg { width: 17px; height: 17px; flex-shrink: 0; margin-top: 1px; }
+.cron-item.bonus { border-color: var(--gold-deep); }
+.cron-item.bonus svg { color: var(--gold); }
+.cron-item.level { border-color: var(--violet-strong); }
+.cron-item.level svg { color: var(--violet); }
+.cron-item.penalty, .cron-item.miss, .cron-item.death { border-color: rgba(220, 38, 38, .55); }
+.cron-item.penalty svg, .cron-item.miss svg, .cron-item.death svg { color: var(--hp); }
 .modal::backdrop { background: rgba(10, 7, 22, .65); backdrop-filter: blur(3px); }
 .modal-inner { padding: 20px 18px calc(18px + var(--safe-bottom)); }
 .modal-head {
