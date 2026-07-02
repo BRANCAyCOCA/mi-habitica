@@ -6,6 +6,11 @@ Todo se guarda **localmente en tu dispositivo** (no necesita internet ni cuenta)
 ## Cómo funciona el juego
 
 - **Hábitos**: recurrentes, programados por día de la semana. Completarlos da XP, monedas y suma racha. Si no completas un hábito en un día programado, **pierdes vida (HP)**.
+- **Multiplicador de racha**: cada 7 días seguidos de racha el hábito paga +10% más monedas (tope +50%). Romper la racha vuelve a ×1.
+- **Logros**: 18 insignias (rachas, horas, niveles, premios…) que pagan XP y monedas al desbloquearse. Se ven en el Perfil.
+- **Modo descanso**: en el Perfil puedes comprar días de vacaciones (15 monedas/día o 4 HP/día): sin daño, sin multas y las rachas se congelan. Completar hábitos paga igual.
+- **Hoy te falta**: banner arriba de Hábitos con lo pendiente del día; para hábitos por tiempo calcula si vas al ritmo de tu meta semanal.
+- **Mapa de constancia**: heatmap tipo GitHub de las últimas 17 semanas en el Perfil.
 - **Pago por hábito**: cada hábito tiene su propio pago en monedas, editable desde el lápiz del hábito. Hay dos tipos de pago:
   - **Al completar**: paga un monto fijo al marcarlo (ej. ir al gimnasio paga 12).
   - **Por tiempo**: registras los minutos que le dedicaste (botón de reloj, varias sesiones al día) y paga proporcional a una tarifa por hora (ej. estudiar a 10/h → 30 min pagan 5). Desde el mismo botón puedes deshacer el último registro.

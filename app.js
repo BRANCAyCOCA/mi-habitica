@@ -31,6 +31,39 @@ const TITLES = [
   [30, "Leyenda"], [20, "Héroe"], [10, "Aventurero"], [5, "Explorador"], [1, "Aprendiz"],
 ];
 
+// Modo descanso: precio por día (elige pagar con monedas o con vida)
+const REST_COINS_PER_DAY = 15;
+const REST_HP_PER_DAY = 4;
+const REST_MAX_DAYS = 14;
+
+// Multiplicador de racha: +10% por cada 7 días seguidos, tope +50%
+function streakMult(streak) {
+  return 1 + Math.min(0.5, Math.floor((streak || 0) / 7) * 0.1);
+}
+
+/* ---------- Logros ---------- */
+const totalTimeAll = s => s.habits.reduce((t, h) => t + (h.totalMinutes || 0), 0);
+const ACHIEVEMENTS = [
+  { id: "primer-paso", title: "Primer paso", desc: "Completa tu primera actividad", icon: "sword", xp: 10, coins: 5, cond: s => s.player.totalCompleted >= 1 },
+  { id: "racha-7", title: "Semana en llamas", desc: "Racha de 7 en un hábito", icon: "flame", xp: 20, coins: 10, cond: s => s.habits.some(h => (h.best || 0) >= 7) },
+  { id: "racha-30", title: "Mes imparable", desc: "Racha de 30 en un hábito", icon: "flame", xp: 60, coins: 40, cond: s => s.habits.some(h => (h.best || 0) >= 30) },
+  { id: "racha-100", title: "Voluntad de hierro", desc: "Racha de 100 en un hábito", icon: "trophy", xp: 150, coins: 100, cond: s => s.habits.some(h => (h.best || 0) >= 100) },
+  { id: "horas-10", title: "Manos a la obra", desc: "10 horas registradas en total", icon: "clock", xp: 25, coins: 15, cond: s => totalTimeAll(s) >= 600 },
+  { id: "horas-50", title: "Maratonista", desc: "50 horas registradas en total", icon: "clock", xp: 80, coins: 50, cond: s => totalTimeAll(s) >= 3000 },
+  { id: "horas-100", title: "Cien horas", desc: "100 horas registradas en total", icon: "star", xp: 150, coins: 100, cond: s => totalTimeAll(s) >= 6000 },
+  { id: "nivel-5", title: "Explorador", desc: "Alcanza el nivel 5", icon: "star", xp: 25, coins: 20, cond: s => s.player.level >= 5 },
+  { id: "nivel-10", title: "Aventurero", desc: "Alcanza el nivel 10", icon: "star", xp: 60, coins: 50, cond: s => s.player.level >= 10 },
+  { id: "nivel-20", title: "Héroe", desc: "Alcanza el nivel 20", icon: "trophy", xp: 120, coins: 100, cond: s => s.player.level >= 20 },
+  { id: "contrato", title: "Contrato cumplido", desc: "Gana tu primer premio semanal o mensual", icon: "target", xp: 25, coins: 10, cond: s => (s.player.weeklyBonuses || 0) >= 1 },
+  { id: "contratos-10", title: "Palabra de honor", desc: "Gana 10 premios de metas", icon: "target", xp: 80, coins: 40, cond: s => (s.player.weeklyBonuses || 0) >= 10 },
+  { id: "rico", title: "Bolsillos llenos", desc: "Gana 500 monedas en total", icon: "coin", xp: 30, coins: 0, cond: s => s.player.coinsEarned >= 500 },
+  { id: "magnate", title: "Tesoro del dragón", desc: "Gana 2000 monedas en total", icon: "coin", xp: 80, coins: 0, cond: s => s.player.coinsEarned >= 2000 },
+  { id: "gustito", title: "Date un gusto", desc: "Canjea tu primera recompensa", icon: "gift", xp: 15, coins: 0, cond: s => s.player.rewardsBought >= 1 },
+  { id: "meta", title: "Conquistador", desc: "Completa una meta con todos sus hitos", icon: "trophy", xp: 40, coins: 20, cond: s => s.goals.some(g => g.done) },
+  { id: "cien-veces", title: "Constancia total", desc: "100 actividades completadas", icon: "check", xp: 60, coins: 30, cond: s => s.player.totalCompleted >= 100 },
+  { id: "fenix", title: "Ave fénix", desc: "Cae en batalla y vuelve a levantarte", icon: "skull", xp: 15, coins: 0, cond: s => s.player.deaths >= 1 },
+];
+
 /* ---------- Iconos SVG (estilo Lucide) ---------- */
 const I = (paths, extra = "") =>
   `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" ${extra} aria-hidden="true">${paths}</svg>`;
@@ -121,6 +154,7 @@ function defaultState() {
     player: {
       name: "", level: 1, xp: 0, hp: MAX_HP, coins: 0,
       totalCompleted: 0, coinsEarned: 0, coinsSpent: 0, rewardsBought: 0, deaths: 0,
+      weeklyBonuses: 0,
       createdAt: todayStr(),
     },
     // {id,title,notes,days:[dow],difficulty,mode:"check"|"tiempo",payout,streak,best,completedToday,todayMinutes,todayLogs,totalMinutes,
@@ -141,6 +175,8 @@ function defaultState() {
       { id: uid(), title: "Comer chocolate", cost: 20, timesBought: 0 },
     ],
     history: {},  // {fecha: xp ganado}
+    achievements: {},  // {id: fecha en que se logró}
+    rest: null,        // {from, until} modo descanso activo (se compra con monedas o vida)
     lastCron: todayStr(),
     lastWeekEvaluated: weekStartStr(todayStr()),  // lunes de la última semana ya premiada/penalizada
     lastMonthEvaluated: monthKey(todayStr()),     // "YYYY-MM" del último mes ya evaluado
@@ -178,6 +214,8 @@ function normalizeState(st) {
   }
   st.lastWeekEvaluated = st.lastWeekEvaluated || weekStartStr(todayStr());
   st.lastMonthEvaluated = st.lastMonthEvaluated || monthKey(todayStr());
+  st.achievements = st.achievements && typeof st.achievements === "object" ? st.achievements : {};
+  st.rest = st.rest && st.rest.from && st.rest.until ? st.rest : null;
   return st;
 }
 function save() {
@@ -240,6 +278,98 @@ function damage(n, reason) {
   }
 }
 
+// Revisa condiciones de logros y otorga los nuevos (idempotente)
+function checkAchievements() {
+  const p = state.player;
+  let earned = false;
+  for (const a of ACHIEVEMENTS) {
+    if (state.achievements[a.id] || !a.cond(state)) continue;
+    state.achievements[a.id] = todayStr();
+    p.xp += a.xp;
+    p.coins += a.coins;
+    p.coinsEarned += a.coins;
+    if (a.xp) recordHistory(a.xp);
+    earned = true;
+    toast(`Logro: ${a.title} · +${a.xp} XP${a.coins ? ` +${a.coins} monedas` : ""}`, "gain", ICONS.trophy);
+  }
+  if (earned) {
+    let leveled = false;
+    while (p.xp >= xpNeeded(p.level)) {
+      p.xp -= xpNeeded(p.level);
+      p.level++;
+      p.hp = MAX_HP;
+      leveled = true;
+    }
+    save();
+    if (leveled) celebrateLevelUp();
+  }
+  return earned;
+}
+
+/* ---------- Modo descanso ---------- */
+function restActive(dateStr) {
+  return !!(state.rest && state.rest.from <= dateStr && dateStr <= state.rest.until);
+}
+
+function restForm() {
+  const p = state.player;
+  const activo = restActive(todayStr());
+  openModal(`
+    <div class="modal-inner">
+      <div class="modal-head"><h3>Modo descanso</h3>
+        <button class="icon-btn" data-close aria-label="Cerrar">${ICONS.x}</button></div>
+      <p class="confirm-text">${activo
+        ? `Estás descansando hasta el <strong>${fmtShortDate(state.rest.until)}</strong>. Puedes comprar más días (reemplaza el período desde hoy).`
+        : "Vacaciones, viaje, enfermedad… Mientras descansas no pierdes vida ni rachas por hábitos sin completar, y no se cobran multas semanales/mensuales. Completar hábitos paga igual."}</p>
+      <div class="field" id="f-restdays">
+        <label for="inpRestDays">Días de descanso (desde hoy)</label>
+        <input type="number" id="inpRestDays" value="3" min="1" max="${REST_MAX_DAYS}" inputmode="numeric">
+        <div class="err">Entre 1 y ${REST_MAX_DAYS} días.</div>
+      </div>
+      <div class="field">
+        <label>Pagar con</label>
+        ${segHTML("restpay", [{ val: "coins", label: `Monedas (${REST_COINS_PER_DAY}/día)` }, { val: "hp", label: `Vida (${REST_HP_PER_DAY} HP/día)` }], "coins")}
+        <div class="hint" id="restHint"></div>
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-ghost" data-close>Cancelar</button>
+        <button class="btn btn-primary" id="btnRest">Comprar descanso</button>
+      </div>
+    </div>`);
+  wireSeg(modal);
+  const inp = $("#inpRestDays", modal);
+  const hint = $("#restHint", modal);
+  const upd = () => {
+    const d = Math.round(Number(inp.value));
+    if (!Number.isFinite(d) || d < 1) { hint.textContent = ""; return; }
+    const pay = segValue(modal, "restpay") || "coins";
+    hint.textContent = pay === "coins"
+      ? `Costo: ${d * REST_COINS_PER_DAY} monedas (tienes ${p.coins}).`
+      : `Costo: ${d * REST_HP_PER_DAY} HP (tienes ${p.hp}; debe quedarte al menos 1).`;
+  };
+  upd();
+  inp.addEventListener("input", upd);
+  $(`.seg[data-seg="restpay"]`, modal).addEventListener("click", upd);
+  $("#btnRest", modal).addEventListener("click", () => {
+    const d = Math.round(Number(inp.value));
+    if (!Number.isFinite(d) || d < 1 || d > REST_MAX_DAYS) { $("#f-restdays", modal).classList.add("has-err"); return; }
+    const pay = segValue(modal, "restpay") || "coins";
+    if (pay === "coins") {
+      const cost = d * REST_COINS_PER_DAY;
+      if (p.coins < cost) { toast(`Te faltan monedas: cuesta ${cost} y tienes ${p.coins}`, "hurt", ICONS.coin); return; }
+      p.coins -= cost;
+      p.coinsSpent += cost;
+    } else {
+      const cost = d * REST_HP_PER_DAY;
+      if (p.hp - cost < 1) { toast(`No te alcanza la vida: cuesta ${cost} HP y tienes ${p.hp}`, "hurt", ICONS.heart); return; }
+      p.hp -= cost;
+    }
+    state.rest = { from: todayStr(), until: addDays(todayStr(), d - 1) };
+    toast(`Descanso hasta el ${fmtShortDate(state.rest.until)}. ¡Recarga energías!`, "info", ICONS.sparkles);
+    save(); modal.close(); renderAll();
+  });
+}
+
 function celebrateLevelUp() {
   const p = state.player;
   openModal(`
@@ -280,6 +410,8 @@ function evalPeriod(h, from, toExcl, labelPeriodo, mult, events) {
     const coins = habitBonus(h) * mult, xp = 20 * mult;
     events.push({ kind: "bonus", coins, xp, hp: 0, text: `${h.title}: ${fmt(sum)} ${labelPeriodo} (meta: ${fmt(target)}) → premio +${coins} monedas, +${xp} XP` });
   } else if (min && sum < min) {
+    // Si el descanso tocó este período, se perdona la multa
+    if (state.rest && state.rest.from < toExcl && state.rest.until >= from) return;
     const coins = habitPenalty(h) * mult, hp = 4 * mult;
     events.push({ kind: "penalty", coins: -coins, xp: 0, hp: -hp, text: `${h.title}: solo ${fmt(sum)} ${labelPeriodo} (mínimo: ${fmt(min)}) → multa −${coins} monedas, −${hp} HP` });
   }
@@ -317,6 +449,7 @@ function runCron() {
   let dmg = 0;
   let missed = 0;
   for (const d of datesBetween(state.lastCron, today)) {
+    if (restActive(d)) continue; // día de descanso: no hay daño ni se rompen rachas
     const dow = parseDateStr(d).getDay();
     for (const h of state.habits) {
       if (!h.days.includes(dow)) continue;
@@ -349,6 +482,7 @@ function runCron() {
   for (const ev of [...events].sort((a, b) => b.coins - a.coins)) {
     p.coins = Math.max(0, p.coins + ev.coins);
     if (ev.coins > 0) p.coinsEarned += ev.coins;
+    if (ev.kind === "bonus") p.weeklyBonuses = (p.weeklyBonuses || 0) + 1;
     p.hp += ev.hp;
     if (ev.xp > 0) {
       p.xp += ev.xp;
@@ -379,6 +513,7 @@ function runCron() {
 
   state.lastCron = today;
   save();
+  checkAchievements();
   if (events.length) showCronSummary(events);
 }
 
@@ -480,12 +615,44 @@ function renderHero() {
 }
 
 /* ---------- Render: Hábitos ---------- */
+// Qué falta hoy: hábitos check sin marcar + hábitos por tiempo atrasados vs. su ritmo semanal
+function todayPending() {
+  const today = todayStr();
+  const dow = new Date().getDay();
+  const wStart = weekStartStr(today);
+  const parts = [];
+  for (const h of state.habits) {
+    if (h.mode === "check") {
+      if (h.days.includes(dow) && !h.completedToday) parts.push(esc(h.title));
+    } else if (h.goalW) {
+      // ritmo: lo que deberías llevar acumulado hasta hoy para llegar a la meta semanal
+      let elapsed = 0;
+      for (let d = wStart; d <= today; d = addDays(d, 1)) {
+        if (h.days.includes(parseDateStr(d).getDay())) elapsed++;
+      }
+      const expected = Math.round(h.goalW * elapsed / Math.max(1, h.days.length));
+      const falta = expected - habitSumRange(h, wStart, addDays(wStart, 7));
+      if (falta > 0) parts.push(`${fmtMin(falta)} de ${esc(h.title)}`);
+    } else if (h.days.includes(dow) && !h.todayMinutes) {
+      parts.push(esc(h.title));
+    }
+  }
+  return parts;
+}
+
 function renderHabitos() {
   const v = $("#view-habitos");
   const todayDow = new Date().getDay();
   const isToday = h => h.days.includes(todayDow);
   const todayHabits = state.habits.filter(isToday);
   const otherHabits = state.habits.filter(h => !isToday(h));
+  const pending = todayPending();
+  const resting = restActive(todayStr());
+  const banner = !state.habits.length ? "" : resting
+    ? `<div class="today-banner rest">${ICONS.sparkles}<span>Modo descanso hasta el <strong>${fmtShortDate(state.rest.until)}</strong>: sin daño ni multas. ¡Disfruta!</span></div>`
+    : pending.length
+      ? `<div class="today-banner">${ICONS.sword}<span><strong>Hoy te falta:</strong> ${pending.join(" · ")}</span></div>`
+      : `<div class="today-banner done">${ICONS.check}<span><strong>¡Todo listo por hoy!</strong> A disfrutar el botín.</span></div>`;
 
   const today = todayStr();
   const wStart = weekStartStr(today);
@@ -519,7 +686,7 @@ function renderHabitos() {
         <div class="card-title">${esc(h.title)}</div>
         ${h.notes ? `<div class="card-notes">${esc(h.notes)}</div>` : ""}
         <div class="card-meta">
-          <span class="streak">${ICONS.flame}${h.streak} racha</span>
+          <span class="streak">${ICONS.flame}${h.streak} racha${streakMult(h.streak) > 1 ? ` ×${streakMult(h.streak).toFixed(1)}` : ""}</span>
           <span class="payout" aria-label="Paga ${habitPayout(h)} monedas${isTime ? " por hora" : ""}">${ICONS.coin}+${habitPayout(h)}${isTime ? "/h" : ""}</span>
           ${isTime && h.todayMinutes ? `<span class="mins">${ICONS.clock}${fmtMin(h.todayMinutes)} hoy</span>` : ""}
           ${goalChip(wSum, h.goalW, h.goalWMin, "sem")}
@@ -539,6 +706,7 @@ function renderHabitos() {
       <div><h2>Hábitos</h2><p class="sub">${todayHabits.length ? `${todayHabits.filter(habitDoneToday).length} de ${todayHabits.length} completados hoy` : "Construye tu rutina diaria"}</p></div>
       <button class="btn btn-primary btn-sm" data-act="new-habit">${ICONS.plus}Nuevo</button>
     </div>
+    ${banner}
     ${state.habits.length === 0 ? `
       <div class="empty">${ICONS.calendar}
         <p>Aún no tienes hábitos</p>
@@ -571,21 +739,26 @@ function toggleHabit(id) {
   const h = state.habits.find(x => x.id === id);
   if (!h || h.mode === "tiempo") return;
   const xp = rewardFor(REWARD_HABIT, h.difficulty).xp;
-  const coins = habitPayout(h);
   if (!h.completedToday) {
     h.completedToday = true;
     h.log[todayStr()] = 1;
     h.streak++;
     h.best = Math.max(h.best || 0, h.streak);
+    const m = streakMult(h.streak);
+    const coins = Math.round(habitPayout(h) * m);
     state.player.totalCompleted++;
-    grant(xp, coins, `racha ${h.streak}`);
+    grant(xp, coins, `racha ${h.streak}${m > 1 ? ` ×${m.toFixed(1)}` : ""}`);
   } else {
+    // deshacer con el mismo multiplicador con que se pagó
+    const m = streakMult(h.streak);
+    const coins = Math.round(habitPayout(h) * m);
     h.completedToday = false;
     delete h.log[todayStr()];
     h.streak = Math.max(0, h.streak - 1);
     state.player.totalCompleted = Math.max(0, state.player.totalCompleted - 1);
     ungrant(xp, coins);
   }
+  checkAchievements();
   save();
   renderAll();
 }
@@ -595,8 +768,6 @@ function logTime(id, minutes) {
   const h = state.habits.find(x => x.id === id);
   if (!h || h.mode !== "tiempo") return;
   const min = clamp(Math.round(Number(minutes)), 1, 24 * 60);
-  const coins = Math.round(habitPayout(h) * min / 60);
-  const xp = Math.max(1, Math.round(rewardFor(REWARD_HABIT, h.difficulty).xp * min / 60));
   const first = (h.todayMinutes || 0) === 0;
   // La racha solo cuenta en días programados; registrar en otros días paga igual
   const streakInc = first && h.days.includes(new Date().getDay());
@@ -604,12 +775,16 @@ function logTime(id, minutes) {
     h.streak++;
     h.best = Math.max(h.best || 0, h.streak);
   }
+  const m = streakMult(h.streak);
+  const coins = Math.round(habitPayout(h) * min / 60 * m);
+  const xp = Math.max(1, Math.round(rewardFor(REWARD_HABIT, h.difficulty).xp * min / 60));
   if (first) state.player.totalCompleted++;
   h.todayMinutes = (h.todayMinutes || 0) + min;
   h.totalMinutes = (h.totalMinutes || 0) + min;
   h.log[todayStr()] = h.todayMinutes;
   h.todayLogs.push({ min, xp, coins, streakInc });
-  grant(xp, coins, `${fmtMin(h.todayMinutes)} hoy`);
+  grant(xp, coins, `${fmtMin(h.todayMinutes)} hoy${m > 1 ? ` ×${m.toFixed(1)}` : ""}`);
+  checkAchievements();
   save();
   renderAll();
 }
@@ -742,6 +917,7 @@ function toggleTodo(id) {
     state.player.totalCompleted = Math.max(0, state.player.totalCompleted - 1);
     ungrant(r.xp, r.coins);
   }
+  checkAchievements();
   save();
   renderAll();
 }
@@ -815,6 +991,7 @@ function toggleMilestone(goalId, mid) {
     if (g.done) { g.done = false; ungrant(REWARD_GOAL.xp, REWARD_GOAL.coins); }
     ungrant(REWARD_MILESTONE.xp, REWARD_MILESTONE.coins);
   }
+  checkAchievements();
   save();
   renderAll();
 }
@@ -857,11 +1034,65 @@ function buyReward(id) {
   state.player.rewardsBought++;
   r.timesBought = (r.timesBought || 0) + 1;
   toast(`¡Disfruta: ${r.title}!`, "gain", ICONS.gift);
+  checkAchievements();
   save();
   renderAll();
 }
 
 /* ---------- Render: Perfil ---------- */
+// Mapa de calor de cumplimiento: últimas 17 semanas, columnas = semanas, filas = L a D
+function heatmapHTML() {
+  const today = todayStr();
+  const start = weekStartStr(addDays(today, -7 * 16));
+  const dias = ["L", "M", "X", "J", "V", "S", "D"];
+  let cells = "";
+  for (let w = 0; w < 17; w++) {
+    for (let r = 0; r < 7; r++) {
+      const date = addDays(start, w * 7 + r);
+      if (date > today) { cells += `<span class="hm-cell future"></span>`; continue; }
+      const dow = parseDateStr(date).getDay();
+      let scheduled = 0, done = 0;
+      for (const h of state.habits) {
+        if ((h.createdAt || "") > date) continue;
+        if (h.days.includes(dow)) scheduled++;
+        if (h.log && h.log[date]) done++;
+      }
+      let lv = 0;
+      if (done > 0) {
+        const ratio = done / Math.max(scheduled, done);
+        lv = ratio >= 1 ? 4 : ratio > 0.66 ? 3 : ratio > 0.33 ? 2 : 1;
+      }
+      cells += `<span class="hm-cell lv${lv}" title="${fmtShortDate(date)}: ${done} de ${scheduled} hábitos"></span>`;
+    }
+  }
+  return `
+    <div class="chart-card">
+      <h3>Mapa de constancia — últimas 17 semanas</h3>
+      <div class="heatmap-row">
+        <div class="hm-days">${dias.map(d => `<span>${d}</span>`).join("")}</div>
+        <div class="heatmap">${cells}</div>
+      </div>
+      <div class="hm-legend"><span>Menos</span><span class="hm-cell lv0"></span><span class="hm-cell lv1"></span><span class="hm-cell lv2"></span><span class="hm-cell lv3"></span><span class="hm-cell lv4"></span><span>Más</span></div>
+    </div>`;
+}
+
+function badgesHTML() {
+  const earned = Object.keys(state.achievements).length;
+  return `
+    <p class="section-label">Logros · ${earned} de ${ACHIEVEMENTS.length}</p>
+    <div class="badge-grid">
+      ${ACHIEVEMENTS.map(a => {
+        const got = state.achievements[a.id];
+        return `
+        <div class="badge ${got ? "earned" : ""}" ${got ? `title="Logrado el ${fmtShortDate(got)}"` : ""}>
+          ${ICONS[a.icon] || ICONS.star}
+          <span class="badge-title">${esc(a.title)}</span>
+          <span class="badge-desc">${esc(a.desc)}</span>
+        </div>`;
+      }).join("")}
+    </div>`;
+}
+
 function renderPerfil() {
   const v = $("#view-perfil");
   const p = state.player;
@@ -900,6 +1131,8 @@ function renderPerfil() {
           </div>`).join("")}
       </div>
     </div>
+    ${heatmapHTML()}
+    ${badgesHTML()}
     ${state.habits.length ? `
     <p class="section-label">Récords por hábito</p>
     <div class="card-list" style="margin-bottom:18px">
@@ -930,6 +1163,7 @@ function renderPerfil() {
       }).join("")}
     </div>` : ""}
     <div class="profile-actions">
+      <button class="btn btn-ghost" data-act="rest">${ICONS.sparkles}${restActive(todayStr()) ? `Descansando hasta el ${fmtShortDate(state.rest.until)} — extender` : "Modo descanso (vacaciones)"}</button>
       <button class="btn btn-ghost" data-act="rename">${ICONS.pencil}Cambiar nombre de héroe</button>
       <button class="btn btn-ghost" data-act="export">${ICONS.download}Exportar mis datos</button>
       <button class="btn btn-ghost" data-act="import">${ICONS.upload}Importar datos</button>
@@ -1437,6 +1671,7 @@ document.addEventListener("click", (e) => {
     "edit-reward": () => rewardForm(state.rewards.find(x => x.id === id)),
     "new-reward": () => rewardForm(null),
     "rename": () => nameForm(),
+    "rest": () => restForm(),
     "export": () => exportData(),
     "import": () => $("#importFile").click(),
     "reset": () => resetAll(),
