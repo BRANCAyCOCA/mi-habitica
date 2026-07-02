@@ -150,7 +150,27 @@ function habitSumRange(h, from, toExcl) {
 }
 
 /* ---------- Estado ---------- */
+// Crea un hábito con todos los campos; `o` pisa los valores por defecto.
+// mode "check": payout = monedas al completar · mode "tiempo": payout = monedas por hora.
+// flexible: sin exigencia diaria (no quita vida faltar un día); mandan sus metas semanales/mensuales.
+// goalW/goalWMin/goalM/goalMMin: check = días · tiempo = minutos; 0 = sin objetivo.
+// bonus: monedas del premio semanal (mensual ×4; null = 2×payout) · penalty: multa semanal (mensual ×4; null = payout).
+function mkHabit(o) {
+  return {
+    id: uid(), title: "", notes: "", days: [1, 2, 3, 4, 5, 6, 0], difficulty: "normal",
+    mode: "check", flexible: false, payout: 8, startDate: null, endDate: null,
+    goalW: 0, goalWMin: 0, goalM: 0, goalMMin: 0, bonus: null, penalty: null,
+    streak: 0, best: 0, completedToday: false, todayMinutes: 0, todayLogs: [],
+    totalMinutes: 0, log: {}, createdAt: todayStr(), ...o,
+  };
+}
+function mkGoal(title, hitos) {
+  return { id: uid(), title, notes: "", milestones: hitos.map(t => ({ id: uid(), title: t, done: false })), done: false };
+}
+
 function defaultState() {
+  // Economía calibrada: una semana "normal" paga ~160-200 monedas.
+  // Estudiar ~75 + meditar ~21 + gimnasio ~48 + clases ~40, más premios semanales/mensuales.
   return {
     player: {
       name: "", level: 1, xp: 0, hp: MAX_HP, coins: 0,
@@ -158,24 +178,39 @@ function defaultState() {
       weeklyBonuses: 0,
       createdAt: todayStr(),
     },
-    // {id,title,notes,days:[dow],difficulty,mode:"check"|"tiempo",payout,streak,best,completedToday,todayMinutes,todayLogs,totalMinutes,
-    //  log:{fecha:valor}, goalW,goalWMin,goalM,goalMMin (check: días · tiempo: minutos; 0 = sin objetivo),
-    //  bonus (monedas premio semanal; mensual ×4; null = 2×payout), penalty (multa semanal; mensual ×4; null = payout), createdAt}
-    // mode "check": payout = monedas al completar · mode "tiempo": payout = monedas por hora
     habits: [
-      { id: uid(), title: "Estudiar", notes: "", days: [1, 2, 3, 4, 5], difficulty: "normal", mode: "tiempo", payout: 10, goalW: 600, goalWMin: 300, goalM: 0, goalMMin: 0, bonus: 20, penalty: 10, streak: 0, best: 0, completedToday: false, todayMinutes: 0, todayLogs: [], totalMinutes: 0, log: {}, createdAt: todayStr() },
-      { id: uid(), title: "Meditar", notes: "", days: [1, 2, 3, 4, 5, 6, 0], difficulty: "facil", mode: "tiempo", payout: 12, goalW: 0, goalWMin: 0, goalM: 0, goalMMin: 0, bonus: null, penalty: null, streak: 0, best: 0, completedToday: false, todayMinutes: 0, todayLogs: [], totalMinutes: 0, log: {}, createdAt: todayStr() },
-      { id: uid(), title: "Ir al gimnasio", notes: "", days: [1, 3, 5], difficulty: "dificil", mode: "check", payout: 12, goalW: 3, goalWMin: 0, goalM: 0, goalMMin: 0, bonus: 24, penalty: 12, streak: 0, best: 0, completedToday: false, todayMinutes: 0, todayLogs: [], totalMinutes: 0, log: {}, createdAt: todayStr() },
-      { id: uid(), title: "Ir a clase", notes: "", days: [1, 2, 3, 4, 5], difficulty: "normal", mode: "check", payout: 8, goalW: 5, goalWMin: 0, goalM: 0, goalMMin: 0, bonus: 16, penalty: 8, streak: 0, best: 0, completedToday: false, todayMinutes: 0, todayLogs: [], totalMinutes: 0, log: {}, createdAt: todayStr() },
+      mkHabit({ title: "Estudiar", notes: "1 a 2 h por día · mínimo 30 min", days: [1, 2, 3, 4, 5], mode: "tiempo", payout: 10, goalW: 450, goalWMin: 150, bonus: 25, penalty: 15 }),
+      mkHabit({ title: "Meditar", notes: "10 min al día · mínimo 5", difficulty: "facil", mode: "tiempo", payout: 18, goalW: 70, goalWMin: 35, bonus: 10, penalty: 5 }),
+      mkHabit({ title: "Ir al gimnasio", notes: "Mínimo 3 por semana · 5 = excelente", difficulty: "dificil", flexible: true, payout: 12, goalW: 5, goalWMin: 3, bonus: 30, penalty: 20 }),
+      mkHabit({ title: "Clase de Renta Fija", notes: "75% de asistencia o quedas libre", days: [1], payout: 10, goalM: 4, goalMMin: 3, bonus: 10, penalty: 15, startDate: "2026-08-03", endDate: "2026-11-30" }),
+      mkHabit({ title: "Clase de Riesgo Crediticio", notes: "75% de asistencia o quedas libre", days: [2], payout: 10, goalM: 4, goalMMin: 3, bonus: 10, penalty: 15, startDate: "2026-08-04", endDate: "2026-11-24" }),
+      mkHabit({ title: "Clase de Microeconomía", notes: "75% de asistencia o quedas libre", days: [3], payout: 10, goalM: 4, goalMMin: 3, bonus: 10, penalty: 15, startDate: "2026-08-05", endDate: "2026-12-02" }),
+      mkHabit({ title: "Clase de Derivados I", notes: "75% de asistencia o quedas libre", days: [5], payout: 10, goalM: 4, goalMMin: 3, bonus: 10, penalty: 15, startDate: "2026-08-07", endDate: "2026-11-27" }),
     ],
     todos: [],    // {id,title,notes,due,difficulty,done,doneDate}
-    goals: [],    // {id,title,notes,milestones:[{id,title,done}],done}
+    // Metas del cuatrimestre: regularizar (2 parciales) y aprobar el final de cada materia
+    goals: [
+      mkGoal("Regularizar Renta Fija", ["Aprobar el 1er parcial", "Aprobar el 2do parcial"]),
+      mkGoal("Regularizar Riesgo Crediticio", ["Aprobar el 1er parcial", "Aprobar el 2do parcial"]),
+      mkGoal("Regularizar Microeconomía", ["Aprobar el 1er parcial", "Aprobar el 2do parcial"]),
+      mkGoal("Regularizar Derivados I", ["Aprobar el 1er parcial", "Aprobar el 2do parcial"]),
+      mkGoal("Aprobar el final de Renta Fija", ["Aprobar el final"]),
+      mkGoal("Aprobar el final de Riesgo Crediticio", ["Aprobar el final"]),
+      mkGoal("Aprobar el final de Microeconomía", ["Aprobar el final"]),
+      mkGoal("Aprobar el final de Derivados I", ["Aprobar el final"]),
+    ],
     // Jefes: enemigos con vida; el XP ganado con los hábitos enlazados les hace daño
     bosses: [],   // {id,title,maxHp,hp,habitIds:[] (vacío = todos),loot,done,createdAt,defeatedAt}
-    // {id,title,cost,timesBought}
+    // {id,title,cost,timesBought} — precios pensados para ~160-200 monedas/semana
     rewards: [
-      { id: uid(), title: "Salir de fiesta", cost: 120, timesBought: 0 },
-      { id: uid(), title: "Comer chocolate", cost: 20, timesBought: 0 },
+      { id: uid(), title: "Salir de fiesta", cost: 150, timesBought: 0 },
+      { id: uid(), title: "Comer chocolate", cost: 25, timesBought: 0 },
+      { id: uid(), title: "1 h de videojuegos", cost: 30, timesBought: 0 },
+      { id: uid(), title: "Dormir hasta tarde", cost: 40, timesBought: 0 },
+      { id: uid(), title: "Maratón de series (2 h)", cost: 50, timesBought: 0 },
+      { id: uid(), title: "Pedir delivery", cost: 60, timesBought: 0 },
+      { id: uid(), title: "Salida con amigos", cost: 80, timesBought: 0 },
+      { id: uid(), title: "Compra caprichosa", cost: 200, timesBought: 0 },
     ],
     history: {},  // {fecha: xp ganado}
     achievements: {},  // {id: fecha en que se logró}
@@ -204,6 +239,7 @@ function loadState() {
 function normalizeState(st) {
   for (const h of st.habits) {
     h.mode = h.mode === "tiempo" ? "tiempo" : "check";
+    h.flexible = !!h.flexible;
     h.todayMinutes = h.todayMinutes || 0;
     h.todayLogs = Array.isArray(h.todayLogs) ? h.todayLogs : [];
     h.totalMinutes = h.totalMinutes || 0;
@@ -430,6 +466,8 @@ function evalPeriod(h, from, toExcl, labelPeriodo, mult, events) {
   } else if (min && sum < min) {
     // Si el descanso tocó este período, se perdona la multa
     if (state.rest && state.rest.from < toExcl && state.rest.until >= from) return;
+    // En hábitos flexibles, no llegar al mínimo rompe la racha (su "día fallado")
+    if (h.flexible) h.streak = 0;
     const coins = habitPenalty(h) * mult, hp = 4 * mult;
     events.push({ kind: "penalty", coins: -coins, xp: 0, hp: -hp, text: `${h.title}: solo ${fmt(sum)} ${labelPeriodo} (mínimo: ${fmt(min)}) → multa −${coins} monedas, −${hp} HP` });
   }
@@ -470,6 +508,7 @@ function runCron() {
     if (restActive(d)) continue; // día de descanso: no hay daño ni se rompen rachas
     const dow = parseDateStr(d).getDay();
     for (const h of state.habits) {
+      if (h.flexible) continue; // sin exigencia diaria: solo mandan sus metas semanales/mensuales
       if (!h.days.includes(dow)) continue;
       if (!habitActiveOn(h, d) || (h.createdAt || "") > d) continue; // materia fuera de cursada
       const done = d === state.lastCron ? habitDoneToday(h) : false;
@@ -688,7 +727,13 @@ function todayPending() {
   const parts = [];
   for (const h of state.habits) {
     if (!habitActiveOn(h, today)) continue; // materia fuera de cursada: no exige
-    if (h.mode === "check") {
+    if (h.flexible && h.mode === "check") {
+      // Flexible: lo que falta para el mínimo semanal (ej. gimnasio ×2 esta semana)
+      const min = h.goalWMin || h.goalW;
+      if (!min) continue;
+      const falta = min - habitSumRange(h, wStart, addDays(wStart, 7));
+      if (falta > 0) parts.push(`${esc(h.title)} ×${falta} esta semana`);
+    } else if (h.mode === "check") {
       if (h.days.includes(dow) && !h.completedToday) parts.push(esc(h.title));
     } else if (h.goalW) {
       // ritmo: lo que deberías llevar acumulado hasta hoy para llegar a la meta semanal
@@ -769,6 +814,7 @@ function renderHabitos() {
           ${isTime && h.todayMinutes ? `<span class="mins">${ICONS.clock}${fmtMin(h.todayMinutes)} hoy</span>` : ""}
           ${goalChip(wSum, h.goalW, h.goalWMin, "sem")}
           ${goalChip(mSum, h.goalM, h.goalMMin, "mes")}
+          ${h.flexible ? `<span class="due" title="Sin exigencia diaria: mandan sus metas">flexible</span>` : ""}
           ${periodChip()}
           <span><span class="diff-dot" style="background:${d.color}"></span>${d.label}</span>
         </div>
@@ -816,26 +862,37 @@ function habitActiveOn(h, dateStr) {
   return (!h.startDate || dateStr >= h.startDate) && (!h.endDate || dateStr <= h.endDate);
 }
 
-// ¿El hábito exigía actividad ese día? (programado, vigente, sin descanso)
+// ¿El hábito exigía actividad ese día? (programado, vigente, sin descanso, no flexible)
 function habitRequiredOn(h, dateStr) {
-  return habitActiveOn(h, dateStr)
+  return !h.flexible
+    && habitActiveOn(h, dateStr)
     && (h.createdAt || "") <= dateStr
     && h.days.includes(parseDateStr(dateStr).getDay())
     && !restActive(dateStr);
 }
 
-// Días exigidos recientes (ayer y anteayer) que quedaron sin registrar
+// ¿Se podía hacer ese día? (para registrar días pasados de hábitos flexibles)
+function habitDoableOn(h, dateStr) {
+  return habitActiveOn(h, dateStr)
+    && (h.createdAt || "") <= dateStr
+    && h.days.includes(parseDateStr(dateStr).getDay());
+}
+
+// Días recientes (ayer y anteayer) que quedaron sin registrar
 function missedRecentDays(h) {
   const out = [];
   for (let i = 1; i <= 2; i++) {
     const d = addDays(todayStr(), -i);
-    if (habitRequiredOn(h, d) && !(h.log && h.log[d])) out.push(d);
+    const posible = h.flexible ? habitDoableOn(h, d) : habitRequiredOn(h, d);
+    if (posible && !(h.log && h.log[d])) out.push(d);
   }
   return out;
 }
 
 // Recalcula la racha real desde el registro histórico (para completar días pasados)
 function recalcStreak(h) {
+  // Flexible: la racha no depende del calendario; se maneja al completar/deshacer
+  if (h.flexible) return;
   const today = todayStr();
   let d = today;
   // hoy aún no hecho no corta la racha: empezar a contar desde ayer
@@ -937,6 +994,7 @@ function logTimePast(h, minutes, date) {
   if (first) {
     state.player.totalCompleted++;
     refundMissedDamage(h, date);
+    if (h.flexible) { h.streak++; h.best = Math.max(h.best || 0, h.streak); }
   }
   recalcStreak(h);
   grant(xp, coins, `${fmtMin(min)} el ${fmtShortDate(date)}`);
@@ -953,6 +1011,7 @@ function completePast(h, date) {
   h.log[date] = 1;
   state.player.totalCompleted++;
   refundMissedDamage(h, date);
+  if (h.flexible) { h.streak++; h.best = Math.max(h.best || 0, h.streak); }
   recalcStreak(h);
   const m = streakMult(h.streak);
   grant(xp, Math.round(habitPayout(h) * m), `completado el ${fmtShortDate(date)}`);
@@ -1362,7 +1421,7 @@ function heatmapHTML() {
       let scheduled = 0, done = 0;
       for (const h of state.habits) {
         if ((h.createdAt || "") > date) continue;
-        if (h.days.includes(dow)) scheduled++;
+        if (!h.flexible && habitActiveOn(h, date) && h.days.includes(dow)) scheduled++;
         if (h.log && h.log[date]) done++;
       }
       let lv = 0;
@@ -1528,7 +1587,12 @@ function habitForm(habit) {
         <div class="days-row" id="daysRow">
           ${WEEK.map(w => `<button type="button" data-dow="${w.dow}" class="${h.days.includes(w.dow) ? "on" : ""}" aria-pressed="${h.days.includes(w.dow)}">${w.l}</button>`).join("")}
         </div>
-        <div class="hint">Si no lo completas un día programado, pierdes vida.</div>
+        <div class="hint" id="daysHint">Si no lo completas un día programado, pierdes vida.</div>
+      </div>
+      <div class="field">
+        <label>Exigencia diaria</label>
+        ${segHTML("flex", [{ val: "strict", label: "Estricta" }, { val: "flex", label: "Flexible" }], h.flexible ? "flex" : "strict")}
+        <div class="hint">Flexible: faltar un día no quita vida; solo mandan sus metas semanales/mensuales (ideal gimnasio: “3 veces por semana, el día que puedas”).</div>
       </div>
       <div class="goal-fields">
         <div class="field">
@@ -1601,10 +1665,14 @@ function habitForm(habit) {
   // Las etiquetas de pago y objetivos cambian según el tipo elegido
   const updatePayoutLabel = () => {
     const time = segValue(modal, "mode") === "tiempo";
+    const flex = segValue(modal, "flex") === "flex";
     $("#payoutLabel", modal).textContent = time ? "Monedas por hora" : "Pago en monedas al completar";
     $("#payoutHint", modal).textContent = time
       ? "Tarifa por hora: se paga proporcional (ej. 10/h → 30 min pagan 5)."
       : "Cuántas monedas te paga este hábito cada vez que lo completes.";
+    $("#daysHint", modal).textContent = flex
+      ? "Días en los que puede hacerse (faltar no quita vida)."
+      : "Si no lo completas un día programado, pierdes vida.";
     const u = time ? "Horas" : "Días";
     $("#lblGoalW", modal).textContent = `${u}/semana para premio`;
     $("#lblGoalWMin", modal).textContent = `Mínimo ${u.toLowerCase()}/semana`;
@@ -1613,6 +1681,7 @@ function habitForm(habit) {
   };
   updatePayoutLabel();
   $(`.seg[data-seg="mode"]`, modal).addEventListener("click", updatePayoutLabel);
+  $(`.seg[data-seg="flex"]`, modal).addEventListener("click", updatePayoutLabel);
   $("#daysRow", modal).addEventListener("click", e => {
     const b = e.target.closest("button");
     if (!b) return;
@@ -1653,6 +1722,7 @@ function habitForm(habit) {
       days: days.length ? days : [1, 2, 3, 4, 5, 6, 0],
       difficulty: segValue(modal, "diff") || "normal",
       mode,
+      flexible: segValue(modal, "flex") === "flex",
       payout,
       startDate,
       endDate,

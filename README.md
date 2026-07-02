@@ -6,6 +6,7 @@ Todo se guarda **localmente en tu dispositivo** (no necesita internet ni cuenta)
 ## Cómo funciona el juego
 
 - **Hábitos**: recurrentes, programados por día de la semana. Completarlos da XP, monedas y suma racha. Si no completas un hábito en un día programado, **pierdes vida (HP)**.
+- **Exigencia flexible**: un hábito puede marcarse como "flexible" (ej. gimnasio "3-5 veces por semana, el día que puedas"): faltar un día no quita vida; solo mandan sus metas semanales/mensuales. Si no llegas al mínimo semanal, multa y se rompe la racha.
 - **Multiplicador de racha**: cada 7 días seguidos de racha el hábito paga +10% más monedas (tope +50%). Romper la racha vuelve a ×1.
 - **Logros**: 18 insignias (rachas, horas, niveles, premios…) que pagan XP y monedas al desbloquearse. Se ven en el Perfil.
 - **Modo descanso**: en el Perfil puedes comprar días de vacaciones (15 monedas/día o 4 HP/día): sin daño, sin multas y las rachas se congelan. Completar hábitos paga igual.
@@ -23,6 +24,24 @@ Todo se guarda **localmente en tu dispositivo** (no necesita internet ni cuenta)
 - **Tienda**: crea tus propias recompensas reales ("1 hora de videojuegos", "pedir comida") y cómpralas con las monedas que ganes.
 - **Nivel y vida**: al subir de nivel tu vida se restaura. Si tu vida llega a 0, pierdes un nivel y tus monedas.
 - **Dificultad**: los hábitos y tareas difíciles dan más XP y monedas (Fácil ×1, Normal ×1.5, Difícil ×2).
+
+## La economía (calibrada para el cuatrimestre 2026)
+
+Una semana "normal" paga **~160-200 monedas**:
+
+| Hábito | Objetivo | Pago | Semana normal |
+|---|---|---|---|
+| Estudiar (L-V) | 1-2 h/día · mín 30 min · meta semanal 7,5 h / mín 2,5 h | 10/h | ~75 |
+| Meditar (diario) | 10 min/día · mín 5 · meta semanal 70 min / mín 35 | 18/h | ~21 |
+| Gimnasio (flexible) | mín 3/semana (multa) · 5 = excelente (premio) | 12/visita | ~48 |
+| Clases ×4 (L,M,X,V) | asistencia mensual: 4 = premio · mín 3 (75%) o multa fuerte | 10/clase | ~40 |
+
+Los precios de la tienda están pensados contra ese ingreso: chocolate 25, videojuegos 30,
+dormir hasta tarde 40, series 50, delivery 60, salida con amigos 80, **fiesta 150**, capricho 200.
+La fiesta cuesta casi una semana entera de esfuerzo: si hubo buena semana, hay fiesta.
+
+Las 4 materias vienen precargadas con sus fechas reales de cursada (agosto-diciembre 2026)
+y sus metas: **Regularizar** (2 parciales) y **Aprobar el final** de cada una.
 
 ## Cómo usarla
 
