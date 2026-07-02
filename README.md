@@ -11,6 +11,10 @@ Todo se guarda **localmente en tu dispositivo** (no necesita internet ni cuenta)
 - **Modo descanso**: en el Perfil puedes comprar días de vacaciones (15 monedas/día o 4 HP/día): sin daño, sin multas y las rachas se congelan. Completar hábitos paga igual.
 - **Hoy te falta**: banner arriba de Hábitos con lo pendiente del día; para hábitos por tiempo calcula si vas al ritmo de tu meta semanal.
 - **Mapa de constancia**: heatmap tipo GitHub de las últimas 17 semanas en el Perfil.
+- **Jefes**: convierte un examen o desafío en un monstruo con vida (pestaña Metas). El XP que ganas con los hábitos vinculados le hace daño; al derrotarlo cobras su botín. Editable: vida, botín y qué hábitos le pegan.
+- **Materias / cursadas**: un hábito puede tener fecha de inicio y fin (ej. "Clase de Cálculo", L y X, del 13 jul al 27 nov). Fuera de esas fechas duerme: no aparece como pendiente, no castiga ni cobra multas.
+- **Registrar días pasados**: hasta 2 días atrás. En hábitos por tiempo, el selector "Hoy/Ayer/Anteayer" del modal; en hábitos de completar, el botón de reloj-histórico que aparece cuando quedó un día sin marcar. Recuperas la vida que el cron te quitó ese día y la racha se recalcula.
+- **Revisión semanal**: cada lunes, mini-reporte automático comparando la semana cerrada con la anterior (horas/días por hábito y XP). También disponible en Perfil → Revisión semanal.
 - **Pago por hábito**: cada hábito tiene su propio pago en monedas, editable desde el lápiz del hábito. Hay dos tipos de pago:
   - **Al completar**: paga un monto fijo al marcarlo (ej. ir al gimnasio paga 12).
   - **Por tiempo**: registras los minutos que le dedicaste (botón de reloj, varias sesiones al día) y paga proporcional a una tarifa por hora (ej. estudiar a 10/h → 30 min pagan 5). Desde el mismo botón puedes deshacer el último registro.

@@ -87,6 +87,7 @@ const ICONS = {
   upload: I('<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12"/>'),
   sparkles: I('<path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z"/>'),
   sword: I('<path d="m14.5 17.5 3 3 3-3-3-3"/><path d="M6.5 6.5 3 3l3.5-.5L18 14"/><path d="m3 21 6-6"/><path d="M14 4l6 6"/>'),
+  history: I('<path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/>'),
 };
 
 /* ---------- Utilidades ---------- */
@@ -169,6 +170,8 @@ function defaultState() {
     ],
     todos: [],    // {id,title,notes,due,difficulty,done,doneDate}
     goals: [],    // {id,title,notes,milestones:[{id,title,done}],done}
+    // Jefes: enemigos con vida; el XP ganado con los hábitos enlazados les hace daño
+    bosses: [],   // {id,title,maxHp,hp,habitIds:[] (vacío = todos),loot,done,createdAt,defeatedAt}
     // {id,title,cost,timesBought}
     rewards: [
       { id: uid(), title: "Salir de fiesta", cost: 120, timesBought: 0 },
@@ -177,6 +180,7 @@ function defaultState() {
     history: {},  // {fecha: xp ganado}
     achievements: {},  // {id: fecha en que se logró}
     rest: null,        // {from, until} modo descanso activo (se compra con monedas o vida)
+    lastReviewShown: weekStartStr(todayStr()),  // lunes de la última revisión semanal mostrada
     lastCron: todayStr(),
     lastWeekEvaluated: weekStartStr(todayStr()),  // lunes de la última semana ya premiada/penalizada
     lastMonthEvaluated: monthKey(todayStr()),     // "YYYY-MM" del último mes ya evaluado
@@ -211,7 +215,18 @@ function normalizeState(st) {
     if (h.bonus == null || !Number.isFinite(Number(h.bonus))) h.bonus = null;
     if (h.penalty == null || !Number.isFinite(Number(h.penalty))) h.penalty = null;
     h.createdAt = h.createdAt || st.player?.createdAt || todayStr();
+    h.startDate = h.startDate || null;
+    h.endDate = h.endDate || null;
   }
+  st.bosses = Array.isArray(st.bosses) ? st.bosses : [];
+  for (const b of st.bosses) {
+    b.habitIds = Array.isArray(b.habitIds) ? b.habitIds : [];
+    b.maxHp = Math.max(1, Math.round(Number(b.maxHp) || 100));
+    b.hp = Math.max(0, Math.min(b.hp ?? b.maxHp, b.maxHp));
+    b.loot = Math.max(0, Math.round(Number(b.loot) || 0));
+    b.done = !!b.done;
+  }
+  st.lastReviewShown = st.lastReviewShown || weekStartStr(todayStr());
   st.lastWeekEvaluated = st.lastWeekEvaluated || weekStartStr(todayStr());
   st.lastMonthEvaluated = st.lastMonthEvaluated || monthKey(todayStr());
   st.achievements = st.achievements && typeof st.achievements === "object" ? st.achievements : {};
@@ -401,6 +416,9 @@ function habitPenalty(h) { return h.penalty ?? habitPayout(h); }
 // mult: 1 = semana, 4 = mes (el mes premia/cobra 4× y duele el doble por HP).
 function evalPeriod(h, from, toExcl, labelPeriodo, mult, events) {
   if (from < (h.createdAt || "")) return; // no evaluar períodos previos al hábito
+  // Vigencia parcial (materia que empieza o termina a mitad del período): no se evalúa
+  if (h.startDate && h.startDate > from) return;
+  if (h.endDate && h.endDate < addDays(toExcl, -1)) return;
   const target = mult === 1 ? h.goalW : h.goalM;
   const min = mult === 1 ? h.goalWMin : h.goalMMin;
   if (!target && !min) return;
@@ -453,6 +471,7 @@ function runCron() {
     const dow = parseDateStr(d).getDay();
     for (const h of state.habits) {
       if (!h.days.includes(dow)) continue;
+      if (!habitActiveOn(h, d) || (h.createdAt || "") > d) continue; // materia fuera de cursada
       const done = d === state.lastCron ? habitDoneToday(h) : false;
       if (!done) {
         dmg += DMG_MISSED_HABIT;
@@ -515,6 +534,52 @@ function runCron() {
   save();
   checkAchievements();
   if (events.length) showCronSummary(events);
+}
+
+/* ---------- Revisión semanal ---------- */
+function weeklyReviewModal() {
+  const ws = weekStartStr(todayStr());     // lunes de esta semana
+  const from = addDays(ws, -7);            // semana pasada
+  const prevFrom = addDays(ws, -14);       // semana anterior a esa
+  const trend = (cur, prev, fmtV) => {
+    const cls = cur > prev ? "up" : cur < prev ? "down" : "flat";
+    const arrow = cur > prev ? "▲" : cur < prev ? "▼" : "•";
+    return `<span class="trend ${cls}">${arrow} ${fmtV(cur)}</span> <small>(antes ${fmtV(prev)})</small>`;
+  };
+  const rows = state.habits.map(h => {
+    const cur = habitSumRange(h, from, ws);
+    const prev = habitSumRange(h, prevFrom, from);
+    if (!cur && !prev) return "";
+    const fmtV = v => h.mode === "tiempo" ? fmtMin(v) : `${v} día${v === 1 ? "" : "s"}`;
+    return `<div class="review-row"><span class="review-name">${esc(h.title)}</span>${trend(cur, prev, fmtV)}</div>`;
+  }).filter(Boolean);
+  const xpOf = (a, b) => Object.entries(state.history).reduce((s, [d, xp]) => d >= a && d < b ? s + xp : s, 0);
+  const xpCur = xpOf(from, ws), xpPrev = xpOf(prevFrom, from);
+  openModal(`
+    <div class="modal-inner">
+      <div class="modal-head"><h3>Revisión semanal</h3>
+        <button class="icon-btn" data-close aria-label="Cerrar">${ICONS.x}</button></div>
+      <p class="confirm-text">Semana del ${fmtShortDate(from)} al ${fmtShortDate(addDays(ws, -1))}, comparada con la anterior.</p>
+      ${rows.length ? `<div class="review-list">
+        <div class="review-row total"><span class="review-name">XP ganado</span>${trend(xpCur, xpPrev, v => `${v} XP`)}</div>
+        ${rows.join("")}
+      </div>` : `<p class="confirm-text">Todavía no hay actividad registrada en esas semanas. ¡Esta semana empieza tu historia!</p>`}
+      <div class="modal-actions"><button class="btn btn-primary" data-close>¡A por esta semana!</button></div>
+    </div>`);
+}
+
+// Cada lunes (primera visita de la semana) se muestra sola la revisión
+function maybeShowWeeklyReview() {
+  const ws = weekStartStr(todayStr());
+  if (ws <= (state.lastReviewShown || "")) return;
+  state.lastReviewShown = ws;
+  save();
+  // hubo actividad la semana pasada o la anterior → vale la pena mostrarla
+  const from = addDays(ws, -14);
+  const anyActivity = state.habits.some(h => habitSumRange(h, from, ws) > 0);
+  if (!anyActivity || !state.player.name) return;
+  if (modal.open) modal.addEventListener("close", () => weeklyReviewModal(), { once: true });
+  else weeklyReviewModal();
 }
 
 function showCronSummary(events) {
@@ -622,6 +687,7 @@ function todayPending() {
   const wStart = weekStartStr(today);
   const parts = [];
   for (const h of state.habits) {
+    if (!habitActiveOn(h, today)) continue; // materia fuera de cursada: no exige
     if (h.mode === "check") {
       if (h.days.includes(dow) && !h.completedToday) parts.push(esc(h.title));
     } else if (h.goalW) {
@@ -643,9 +709,11 @@ function todayPending() {
 function renderHabitos() {
   const v = $("#view-habitos");
   const todayDow = new Date().getDay();
+  const activos = state.habits.filter(h => habitActiveOn(h, todayStr()));
+  const dormidos = state.habits.filter(h => !habitActiveOn(h, todayStr()));
   const isToday = h => h.days.includes(todayDow);
-  const todayHabits = state.habits.filter(isToday);
-  const otherHabits = state.habits.filter(h => !isToday(h));
+  const todayHabits = activos.filter(isToday);
+  const otherHabits = activos.filter(h => !isToday(h));
   const pending = todayPending();
   const resting = restActive(todayStr());
   const banner = !state.habits.length ? "" : resting
@@ -658,7 +726,7 @@ function renderHabitos() {
   const wStart = weekStartStr(today);
   const mStart = `${monthKey(today)}-01`;
 
-  const card = (h, activeToday) => {
+  const card = (h, activeToday, sleeping = false) => {
     const d = DIFF[h.difficulty] || DIFF.normal;
     const done = habitDoneToday(h);
     const isTime = h.mode === "tiempo";
@@ -670,9 +738,19 @@ function renderHabitos() {
       const hit = target && sum >= target;
       return `<span class="goal-chip ${hit ? "hit" : ""}" title="${hit ? "¡Meta cumplida!" : "Progreso"}">${ICONS.target}${fmtV(sum)}/${fmtV(target || min)} ${lbl}</span>`;
     };
+    // Chip de vigencia (materias): próximo a comenzar, en curso o terminado
+    const periodChip = () => {
+      if (!h.startDate && !h.endDate) return "";
+      const txt = sleeping
+        ? (h.startDate && today < h.startDate ? `comienza el ${fmtShortDate(h.startDate)}` : `terminó el ${fmtShortDate(h.endDate)}`)
+        : `${h.startDate ? fmtShortDate(h.startDate) : "…"} – ${h.endDate ? fmtShortDate(h.endDate) : "…"}`;
+      return `<span class="due">${ICONS.calendar}${txt}</span>`;
+    };
+    const canBackfill = !isTime && !sleeping && missedRecentDays(h).length > 0;
     return `
-    <div class="card ${!isTime && done ? "is-done" : ""}">
-      ${isTime ? `
+    <div class="card ${!isTime && done ? "is-done" : ""} ${sleeping ? "is-sleeping" : ""}">
+      ${sleeping ? `
+      <div class="check-btn" style="opacity:.25" aria-hidden="true">${ICONS.calendar}</div>` : isTime ? `
       <button class="check-btn time-btn ${done ? "is-checked" : ""}" data-act="log-time" data-id="${h.id}"
         aria-label="Registrar tiempo de ${esc(h.title)}">
         ${ICONS.clock}
@@ -691,12 +769,14 @@ function renderHabitos() {
           ${isTime && h.todayMinutes ? `<span class="mins">${ICONS.clock}${fmtMin(h.todayMinutes)} hoy</span>` : ""}
           ${goalChip(wSum, h.goalW, h.goalWMin, "sem")}
           ${goalChip(mSum, h.goalM, h.goalMMin, "mes")}
+          ${periodChip()}
           <span><span class="diff-dot" style="background:${d.color}"></span>${d.label}</span>
         </div>
         <div class="day-pills" aria-label="Días programados">
           ${WEEK.map(w => `<span class="day-pill ${h.days.includes(w.dow) ? "on" : ""}">${w.l}</span>`).join("")}
         </div>
       </div>
+      ${canBackfill ? `<button class="icon-btn" data-act="backfill" data-id="${h.id}" aria-label="Completar día pasado de ${esc(h.title)}">${ICONS.history}</button>` : ""}
       <button class="icon-btn" data-act="edit-habit" data-id="${h.id}" aria-label="Editar ${esc(h.title)}">${ICONS.pencil}</button>
     </div>`;
   };
@@ -714,6 +794,7 @@ function renderHabitos() {
       </div>` : `
       ${todayHabits.length ? `<div class="card-list">${todayHabits.map(h => card(h, true)).join("")}</div>` : ""}
       ${otherHabits.length ? `<p class="section-label">Otros días</p><div class="card-list">${otherHabits.map(h => card(h, false)).join("")}</div>` : ""}
+      ${dormidos.length ? `<p class="section-label">Fuera de período</p><div class="card-list">${dormidos.map(h => card(h, false, true)).join("")}</div>` : ""}
     `}`;
 }
 
@@ -727,6 +808,49 @@ function habitPayout(h) {
 
 function habitDoneToday(h) {
   return h.mode === "tiempo" ? (h.todayMinutes || 0) > 0 : h.completedToday;
+}
+
+// Vigencia: fuera de [startDate, endDate] el hábito duerme (no exige, no castiga).
+// Sirve para materias/cursadas con fecha de inicio y fin.
+function habitActiveOn(h, dateStr) {
+  return (!h.startDate || dateStr >= h.startDate) && (!h.endDate || dateStr <= h.endDate);
+}
+
+// ¿El hábito exigía actividad ese día? (programado, vigente, sin descanso)
+function habitRequiredOn(h, dateStr) {
+  return habitActiveOn(h, dateStr)
+    && (h.createdAt || "") <= dateStr
+    && h.days.includes(parseDateStr(dateStr).getDay())
+    && !restActive(dateStr);
+}
+
+// Días exigidos recientes (ayer y anteayer) que quedaron sin registrar
+function missedRecentDays(h) {
+  const out = [];
+  for (let i = 1; i <= 2; i++) {
+    const d = addDays(todayStr(), -i);
+    if (habitRequiredOn(h, d) && !(h.log && h.log[d])) out.push(d);
+  }
+  return out;
+}
+
+// Recalcula la racha real desde el registro histórico (para completar días pasados)
+function recalcStreak(h) {
+  const today = todayStr();
+  let d = today;
+  // hoy aún no hecho no corta la racha: empezar a contar desde ayer
+  if (!(h.log && h.log[d])) d = addDays(d, -1);
+  let streak = 0;
+  let guard = 0;
+  while (guard++ < 400 && d >= (h.createdAt || d)) {
+    if (habitRequiredOn(h, d)) {
+      if (h.log && h.log[d]) streak++;
+      else break;
+    }
+    d = addDays(d, -1);
+  }
+  h.streak = streak;
+  h.best = Math.max(h.best || 0, streak);
 }
 
 function fmtMin(min) {
@@ -748,6 +872,7 @@ function toggleHabit(id) {
     const coins = Math.round(habitPayout(h) * m);
     state.player.totalCompleted++;
     grant(xp, coins, `racha ${h.streak}${m > 1 ? ` ×${m.toFixed(1)}` : ""}`);
+    damageBosses(h.id, xp);
   } else {
     // deshacer con el mismo multiplicador con que se pagó
     const m = streakMult(h.streak);
@@ -757,6 +882,7 @@ function toggleHabit(id) {
     h.streak = Math.max(0, h.streak - 1);
     state.player.totalCompleted = Math.max(0, state.player.totalCompleted - 1);
     ungrant(xp, coins);
+    healBosses(h.id, xp);
   }
   checkAchievements();
   save();
@@ -784,9 +910,88 @@ function logTime(id, minutes) {
   h.log[todayStr()] = h.todayMinutes;
   h.todayLogs.push({ min, xp, coins, streakInc });
   grant(xp, coins, `${fmtMin(h.todayMinutes)} hoy${m > 1 ? ` ×${m.toFixed(1)}` : ""}`);
+  damageBosses(h.id, xp);
   checkAchievements();
   save();
   renderAll();
+}
+
+/* ---------- Registrar días pasados (hasta 2 días atrás) ---------- */
+// Si el cron ya te castigó por ese día, se te devuelve la vida perdida
+function refundMissedDamage(h, date) {
+  if (!habitRequiredOn(h, date)) return;
+  const p = state.player;
+  p.hp = Math.min(MAX_HP, p.hp + DMG_MISSED_HABIT);
+  toast(`+${DMG_MISSED_HABIT} HP recuperados: ese día sí cumpliste`, "info", ICONS.heart);
+}
+
+// Registra minutos en un día pasado (hábitos por tiempo)
+function logTimePast(h, minutes, date) {
+  const min = clamp(Math.round(Number(minutes)), 1, 24 * 60);
+  const first = !(h.log && h.log[date]);
+  const m = streakMult(h.streak);
+  const coins = Math.round(habitPayout(h) * min / 60 * m);
+  const xp = Math.max(1, Math.round(rewardFor(REWARD_HABIT, h.difficulty).xp * min / 60));
+  h.log[date] = (h.log[date] || 0) + min;
+  h.totalMinutes = (h.totalMinutes || 0) + min;
+  if (first) {
+    state.player.totalCompleted++;
+    refundMissedDamage(h, date);
+  }
+  recalcStreak(h);
+  grant(xp, coins, `${fmtMin(min)} el ${fmtShortDate(date)}`);
+  damageBosses(h.id, xp);
+  checkAchievements();
+  save();
+  renderAll();
+}
+
+// Marca como completado un día pasado (hábitos al completar)
+function completePast(h, date) {
+  if (h.log && h.log[date]) return;
+  const xp = rewardFor(REWARD_HABIT, h.difficulty).xp;
+  h.log[date] = 1;
+  state.player.totalCompleted++;
+  refundMissedDamage(h, date);
+  recalcStreak(h);
+  const m = streakMult(h.streak);
+  grant(xp, Math.round(habitPayout(h) * m), `completado el ${fmtShortDate(date)}`);
+  damageBosses(h.id, xp);
+  checkAchievements();
+  save();
+  renderAll();
+}
+
+// Modal para completar un día pasado que quedó sin marcar (hábitos check)
+function backfillForm(h) {
+  const missed = missedRecentDays(h);
+  if (!missed.length) return;
+  const labels = { 1: "Ayer", 2: "Anteayer" };
+  const opts = missed.map(d => {
+    const diff = Math.round((parseDateStr(todayStr()) - parseDateStr(d)) / 86400000);
+    return { val: d, label: `${labels[diff] || fmtShortDate(d)} (${fmtShortDate(d)})` };
+  });
+  openModal(`
+    <div class="modal-inner">
+      <div class="modal-head"><h3>Completar día pasado</h3>
+        <button class="icon-btn" data-close aria-label="Cerrar">${ICONS.x}</button></div>
+      <p class="confirm-text">¿Hiciste <strong>${esc(h.title)}</strong> y olvidaste marcarlo? Recuperas la vida perdida y tu racha se recalcula.</p>
+      <div class="field">
+        <label>¿Qué día?</label>
+        ${segHTML("bfday", opts, opts[0].val)}
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-ghost" data-close>Cancelar</button>
+        <button class="btn btn-primary" id="btnBackfill">${ICONS.check}Completar</button>
+      </div>
+    </div>`);
+  wireSeg(modal);
+  $("#btnBackfill", modal).addEventListener("click", () => {
+    const date = segValue(modal, "bfday");
+    if (!date) return;
+    modal.close();
+    completePast(h, date);
+  });
 }
 
 function undoTimeLog(id) {
@@ -800,6 +1005,7 @@ function undoTimeLog(id) {
   if (log.streakInc) h.streak = Math.max(0, h.streak - 1);
   if (h.todayMinutes === 0) state.player.totalCompleted = Math.max(0, state.player.totalCompleted - 1);
   ungrant(log.xp, log.coins);
+  healBosses(h.id, log.xp);
   save();
   renderAll();
 }
@@ -807,11 +1013,21 @@ function undoTimeLog(id) {
 function timeLogForm(h) {
   if (!h) return;
   const rate = habitPayout(h);
+  const today = todayStr();
   openModal(`
     <div class="modal-inner">
       <div class="modal-head"><h3>Registrar tiempo</h3>
         <button class="icon-btn" data-close aria-label="Cerrar">${ICONS.x}</button></div>
       <p class="confirm-text"><strong>${esc(h.title)}</strong> · paga ${rate} monedas por hora${h.todayMinutes ? ` · hoy llevas ${fmtMin(h.todayMinutes)}` : ""}</p>
+      <div class="field">
+        <label>¿Qué día?</label>
+        ${segHTML("qday", [
+          { val: today, label: "Hoy" },
+          { val: addDays(today, -1), label: "Ayer" },
+          { val: addDays(today, -2), label: "Anteayer" },
+        ], today)}
+        <div class="hint" id="dayHint"></div>
+      </div>
       <div class="field">
         <label>Rápido</label>
         ${segHTML("qmin", [{ val: "15", label: "15 min" }, { val: "30", label: "30 min" }, { val: "45", label: "45 min" }, { val: "60", label: "1 h" }], "")}
@@ -830,13 +1046,19 @@ function timeLogForm(h) {
   wireSeg(modal);
   const inp = $("#inpMin", modal);
   const hint = $("#minHint", modal);
+  const dayHint = $("#dayHint", modal);
   const updateHint = () => {
     const m = Math.round(Number(inp.value));
     hint.textContent = Number.isFinite(m) && m >= 1
       ? `${m} min te pagan ${Math.round(rate * m / 60)} monedas.` : "";
+    const day = segValue(modal, "qday");
+    dayHint.textContent = day !== today
+      ? `Se registrará para el ${fmtShortDate(day)}${habitRequiredOn(h, day) && !(h.log && h.log[day]) ? " y recuperas la vida perdida ese día" : ""}.`
+      : "";
   };
   updateHint();
   inp.addEventListener("input", updateHint);
+  $(`.seg[data-seg="qday"]`, modal).addEventListener("click", updateHint);
   $(`.seg[data-seg="qmin"]`, modal).addEventListener("click", e => {
     const b = e.target.closest("button");
     if (b) { inp.value = b.dataset.val; updateHint(); }
@@ -844,8 +1066,10 @@ function timeLogForm(h) {
   $("#btnLog", modal).addEventListener("click", () => {
     const m = Math.round(Number(inp.value));
     if (!Number.isFinite(m) || m < 1) { $("#f-min", modal).classList.add("has-err"); inp.focus(); return; }
+    const day = segValue(modal, "qday") || today;
     modal.close();
-    logTime(h.id, m);
+    if (day === today) logTime(h.id, m);
+    else logTimePast(h, m, day);
   });
   $("#btnUndoLog", modal)?.addEventListener("click", () => {
     modal.close();
@@ -856,6 +1080,47 @@ function timeLogForm(h) {
 function rewardFor(base, difficulty) {
   const m = (DIFF[difficulty] || DIFF.normal).mult;
   return { xp: Math.round(base.xp * m), coins: Math.round(base.coins * m) };
+}
+
+/* ---------- Jefes ---------- */
+// XP de botín al derrotar un jefe, proporcional a su tamaño
+function bossXP(b) { return Math.round(b.maxHp * 0.25); }
+
+function bossesFor(habitId) {
+  return state.bosses.filter(b => !b.done && (!b.habitIds.length || b.habitIds.includes(habitId)));
+}
+
+// El esfuerzo (XP ganado) golpea a los jefes vinculados al hábito
+function damageBosses(habitId, dmg) {
+  if (dmg <= 0) return;
+  for (const b of bossesFor(habitId)) {
+    b.hp = Math.max(0, b.hp - dmg);
+    if (b.hp === 0) defeatBoss(b);
+    else toast(`${b.title}: −${dmg} de vida (queda ${b.hp}/${b.maxHp})`, "info", ICONS.sword);
+  }
+}
+
+// Al deshacer una acción, los jefes aún vivos recuperan esa vida
+function healBosses(habitId, amount) {
+  if (amount <= 0) return;
+  for (const b of state.bosses) {
+    if (b.done || (b.habitIds.length && !b.habitIds.includes(habitId))) continue;
+    b.hp = Math.min(b.maxHp, b.hp + amount);
+  }
+}
+
+function defeatBoss(b) {
+  b.done = true;
+  b.defeatedAt = todayStr();
+  grant(bossXP(b), b.loot || 0, `¡${b.title} derrotado!`);
+  openModal(`
+    <div class="modal-inner celebrate">
+      <div class="big-ico" style="color:var(--gold)">${ICONS.skull}</div>
+      <h3>¡Jefe derrotado!</h3>
+      <p><strong>${esc(b.title)}</strong> cayó ante tu constancia.</p>
+      <p class="gold-line">Botín: +${b.loot || 0} monedas · +${bossXP(b)} XP</p>
+      <div class="modal-actions"><button class="btn btn-primary" data-close>¡A por el siguiente!</button></div>
+    </div>`);
 }
 
 /* ---------- Render: Tareas ---------- */
@@ -923,10 +1188,38 @@ function toggleTodo(id) {
 }
 
 /* ---------- Render: Metas ---------- */
+function bossCard(b) {
+  const pct = clamp((b.hp / b.maxHp) * 100, 0, 100);
+  const linked = b.habitIds.length
+    ? b.habitIds.map(id => state.habits.find(h => h.id === id)?.title).filter(Boolean).join(", ")
+    : "todos los hábitos";
+  return `
+  <div class="goal-card boss-card ${b.done ? "is-done" : ""}">
+    <div class="goal-top">
+      <div class="boss-ico ${b.done ? "beaten" : ""}">${b.done ? ICONS.trophy : ICONS.skull}</div>
+      <div class="card-body">
+        <div class="card-title">${esc(b.title)}</div>
+        <div class="card-meta">
+          <span class="payout">${ICONS.coin}botín: ${b.loot} + ${bossXP(b)} XP</span>
+          <span>${ICONS.sword}${esc(linked)}</span>
+        </div>
+      </div>
+      <button class="icon-btn" data-act="edit-boss" data-id="${b.id}" aria-label="Editar ${esc(b.title)}">${ICONS.pencil}</button>
+    </div>
+    ${b.done ? `<span class="goal-done-tag">${ICONS.trophy}Derrotado el ${fmtShortDate(b.defeatedAt)}</span>` : `
+    <div class="goal-progress-row">
+      <div class="goal-bar"><div class="goal-bar-fill boss-hp" style="width:${pct}%"></div></div>
+      <span class="goal-pct boss-pct">${b.hp}/${b.maxHp}</span>
+    </div>`}
+  </div>`;
+}
+
 function renderMetas() {
   const v = $("#view-metas");
   const active = state.goals.filter(g => !g.done);
   const finished = state.goals.filter(g => g.done);
+  const bossesAlive = state.bosses.filter(b => !b.done);
+  const bossesDead = state.bosses.filter(b => b.done);
 
   const card = (g) => {
     const total = g.milestones.length;
@@ -962,8 +1255,23 @@ function renderMetas() {
       <div><h2>Metas</h2><p class="sub">Objetivos grandes, paso a paso</p></div>
       <button class="btn btn-primary btn-sm" data-act="new-goal">${ICONS.plus}Nueva</button>
     </div>
+    <div class="subhead">
+      <p class="section-label" style="margin:0">Jefes</p>
+      <button class="btn btn-ghost btn-sm" data-act="new-boss">${ICONS.plus}Jefe</button>
+    </div>
+    ${state.bosses.length === 0 ? `
+      <div class="empty small">${ICONS.skull}
+        <p>Sin jefes que enfrentar</p>
+        <small>Convierte un examen o desafío en un monstruo: tu esfuerzo (XP) le hace daño hasta derrotarlo.</small>
+      </div>` : `
+      <div class="card-list">${bossesAlive.map(bossCard).join("")}</div>
+      ${bossesDead.length ? `<p class="section-label">Derrotados</p><div class="card-list">${bossesDead.map(bossCard).join("")}</div>` : ""}
+    `}
+    <div class="subhead" style="margin-top:22px">
+      <p class="section-label" style="margin:0">Metas con hitos</p>
+    </div>
     ${state.goals.length === 0 ? `
-      <div class="empty">${ICONS.target}
+      <div class="empty small">${ICONS.target}
         <p>Sin metas todavía</p>
         <small>Define un objetivo grande y divídelo en hitos: cada hito da XP.</small>
       </div>` : `
@@ -1163,6 +1471,7 @@ function renderPerfil() {
       }).join("")}
     </div>` : ""}
     <div class="profile-actions">
+      <button class="btn btn-ghost" data-act="review">${ICONS.calendar}Revisión semanal</button>
       <button class="btn btn-ghost" data-act="rest">${ICONS.sparkles}${restActive(todayStr()) ? `Descansando hasta el ${fmtShortDate(state.rest.until)} — extender` : "Modo descanso (vacaciones)"}</button>
       <button class="btn btn-ghost" data-act="rename">${ICONS.pencil}Cambiar nombre de héroe</button>
       <button class="btn btn-ghost" data-act="export">${ICONS.download}Exportar mis datos</button>
@@ -1221,6 +1530,18 @@ function habitForm(habit) {
         </div>
         <div class="hint">Si no lo completas un día programado, pierdes vida.</div>
       </div>
+      <div class="goal-fields">
+        <div class="field">
+          <label for="inpStart">Comienza (opcional)</label>
+          <input type="date" id="inpStart" value="${esc(h.startDate || "")}">
+        </div>
+        <div class="field" id="f-end">
+          <label for="inpEnd">Termina (opcional)</label>
+          <input type="date" id="inpEnd" value="${esc(h.endDate || "")}">
+          <div class="err">Debe ser posterior al inicio.</div>
+        </div>
+      </div>
+      <div class="hint" style="margin:-4px 0 12px">Para materias o cursadas: fuera de estas fechas el hábito duerme (no exige ni castiga). Vacío = siempre activo.</div>
       <div class="field">
         <label>Dificultad</label>
         ${segHTML("diff", [{ val: "facil", label: "Fácil" }, { val: "normal", label: "Normal" }, { val: "dificil", label: "Difícil" }], h.difficulty)}
@@ -1322,6 +1643,9 @@ function habitForm(habit) {
     const bonus = readOpt("#inpBonus", "#f-bonus");
     const penalty = readOpt("#inpPenalty", "#f-penalty");
     if (bonus === undefined || penalty === undefined) return;
+    const startDate = $("#inpStart", modal).value || null;
+    const endDate = $("#inpEnd", modal).value || null;
+    if (startDate && endDate && endDate < startDate) { $("#f-end", modal).classList.add("has-err"); return; }
     const days = $$("#daysRow button.on", modal).map(b => Number(b.dataset.dow));
     const data = {
       title,
@@ -1330,6 +1654,8 @@ function habitForm(habit) {
       difficulty: segValue(modal, "diff") || "normal",
       mode,
       payout,
+      startDate,
+      endDate,
       goalW: readGoal("#inpGoalW"),
       goalWMin: readGoal("#inpGoalWMin"),
       goalM: readGoal("#inpGoalM"),
@@ -1497,6 +1823,99 @@ function goalForm(goal) {
   });
 }
 
+function bossForm(boss) {
+  const isNew = !boss;
+  const b = boss || { title: "", maxHp: 300, loot: 150, habitIds: [] };
+  openModal(`
+    <div class="modal-inner">
+      <div class="modal-head"><h3>${isNew ? "Nuevo jefe" : "Editar jefe"}</h3>
+        <button class="icon-btn" data-close aria-label="Cerrar">${ICONS.x}</button></div>
+      <div class="field" id="f-title">
+        <label for="inpTitle">Nombre del jefe</label>
+        <input type="text" id="inpTitle" value="${esc(b.title)}" placeholder="Ej: Final de Cálculo" maxlength="80" autocomplete="off">
+        <div class="err">Ponle nombre a tu enemigo.</div>
+      </div>
+      <div class="goal-fields">
+        <div class="field" id="f-bosshp">
+          <label for="inpBossHp">Vida del jefe</label>
+          <input type="number" id="inpBossHp" value="${b.maxHp}" min="10" max="99999" inputmode="numeric">
+          <div class="err">Mínimo 10.</div>
+        </div>
+        <div class="field" id="f-loot">
+          <label for="inpLoot">Botín (monedas)</label>
+          <input type="number" id="inpLoot" value="${b.loot}" min="0" max="9999" inputmode="numeric">
+          <div class="err">Debe ser 0 o más.</div>
+        </div>
+      </div>
+      <div class="hint" style="margin:-4px 0 12px" id="bossHint"></div>
+      <div class="field">
+        <label>Hábitos que le hacen daño</label>
+        <div class="habit-pick" id="habitPick">
+          ${state.habits.map(h => `
+            <button type="button" data-hid="${h.id}" class="${b.habitIds.includes(h.id) ? "on" : ""}" aria-pressed="${b.habitIds.includes(h.id)}">${esc(h.title)}</button>`).join("")}
+        </div>
+        <div class="hint">Sin selección = todos los hábitos le pegan. El daño es el XP que ganas.</div>
+      </div>
+      <div class="modal-actions">
+        ${isNew ? "" : `<button class="btn btn-danger" id="btnDel">${ICONS.trash}</button>`}
+        <button class="btn btn-ghost" data-close>Cancelar</button>
+        <button class="btn btn-primary" id="btnSave">Guardar</button>
+      </div>
+    </div>`);
+  const hpInp = $("#inpBossHp", modal);
+  const bossHint = $("#bossHint", modal);
+  const updHint = () => {
+    const hp = Math.round(Number(hpInp.value));
+    if (!Number.isFinite(hp) || hp < 10) { bossHint.textContent = ""; return; }
+    // referencia: 1 h de estudio normal ≈ 18 XP de daño
+    bossHint.textContent = `Referencia: 1 h de un hábito normal pega ~18 de daño → este jefe cae con ~${Math.round(hp / 18)} h de esfuerzo. Al morir también suelta +${Math.round(hp * 0.25)} XP.`;
+  };
+  updHint();
+  hpInp.addEventListener("input", updHint);
+  $("#habitPick", modal).addEventListener("click", e => {
+    const btn = e.target.closest("button");
+    if (!btn) return;
+    btn.classList.toggle("on");
+    btn.setAttribute("aria-pressed", btn.classList.contains("on"));
+  });
+  $("#btnSave", modal).addEventListener("click", () => {
+    const title = $("#inpTitle", modal).value.trim();
+    if (!title) { $("#f-title", modal).classList.add("has-err"); return; }
+    const maxHp = Math.round(Number(hpInp.value));
+    if (!Number.isFinite(maxHp) || maxHp < 10) { $("#f-bosshp", modal).classList.add("has-err"); return; }
+    const loot = Math.round(Number($("#inpLoot", modal).value));
+    if (!Number.isFinite(loot) || loot < 0) { $("#f-loot", modal).classList.add("has-err"); return; }
+    const habitIds = $$("#habitPick button.on", modal).map(x => x.dataset.hid);
+    if (isNew) {
+      state.bosses.push({ id: uid(), title, maxHp, hp: maxHp, loot, habitIds, done: false, createdAt: todayStr(), defeatedAt: null });
+      toast(`¡${title} te desafía! Derrótalo con constancia`, "info", ICONS.skull);
+    } else {
+      // conservar el daño ya hecho si cambia la vida total
+      const dmgDone = boss.maxHp - boss.hp;
+      Object.assign(boss, { title, maxHp, loot, habitIds });
+      if (!boss.done) {
+        boss.hp = Math.max(0, maxHp - dmgDone);
+        if (boss.hp === 0) defeatBoss(boss);
+      }
+    }
+    save();
+    if (!modal.open || isNew) modal.close();
+    else if (!$(".celebrate", modal)) modal.close(); // no cerrar la celebración de derrota
+    renderAll();
+  });
+  if (!isNew) $("#btnDel", modal).addEventListener("click", () => {
+    confirmDialog({
+      title: "Eliminar jefe",
+      text: `¿Retirar a “${boss.title}” del campo de batalla?`,
+      onOk: () => {
+        state.bosses = state.bosses.filter(x => x.id !== boss.id);
+        save(); renderAll();
+        toast("Jefe eliminado", "info", ICONS.trash);
+      },
+    });
+  });
+}
+
 function rewardForm(reward) {
   const isNew = !reward;
   const r = reward || { title: "", cost: 25 };
@@ -1659,8 +2078,12 @@ document.addEventListener("click", (e) => {
   const actions = {
     "toggle-habit": () => toggleHabit(id),
     "log-time": () => timeLogForm(state.habits.find(x => x.id === id)),
+    "backfill": () => backfillForm(state.habits.find(x => x.id === id)),
     "edit-habit": () => habitForm(state.habits.find(x => x.id === id)),
     "new-habit": () => habitForm(null),
+    "new-boss": () => bossForm(null),
+    "edit-boss": () => bossForm(state.bosses.find(x => x.id === id)),
+    "review": () => weeklyReviewModal(),
     "toggle-todo": () => toggleTodo(id),
     "edit-todo": () => todoForm(state.todos.find(x => x.id === id)),
     "new-todo": () => todoForm(null),
@@ -1695,6 +2118,7 @@ document.addEventListener("visibilitychange", () => {
 runCron();
 renderAll();
 if (!state.player.name) nameForm({ firstTime: true });
+else maybeShowWeeklyReview();
 
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => {}));

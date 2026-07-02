@@ -285,6 +285,9 @@ h1, h2, h3 { font-family: var(--font-display); font-weight: 700; letter-spacing:
 .card-meta .due svg { width: 13px; height: 13px; }
 .card-meta .due.overdue { color: var(--danger); }
 .diff-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 3px; }
+/* Cualquier icono dentro de la meta de una tarjeta va en tamaño mini */
+.card-meta svg { width: 13px; height: 13px; flex-shrink: 0; }
+.card-meta > span { display: inline-flex; align-items: center; gap: 3px; }
 
 .icon-btn {
   flex-shrink: 0;
@@ -744,6 +747,69 @@ h1, h2, h3 { font-family: var(--font-display); font-weight: 700; letter-spacing:
   letter-spacing: .08em;
   margin: 20px 0 8px;
 }
+
+/* ============ Jefes ============ */
+.subhead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 4px 0 10px;
+}
+.boss-ico {
+  flex-shrink: 0;
+  width: 46px; height: 46px;
+  border-radius: 13px;
+  background: linear-gradient(160deg, #4a1d3f, #2b1230);
+  border: 1px solid #6b2a52;
+  display: grid; place-items: center;
+  color: var(--hp);
+}
+.boss-ico svg { width: 26px; height: 26px; }
+.boss-ico.beaten { background: linear-gradient(160deg, #3b2f6e, var(--surface-2)); border-color: var(--gold-deep); color: var(--gold); }
+.goal-bar-fill.boss-hp { background: linear-gradient(90deg, var(--hp-deep), var(--hp)); }
+.goal-pct.boss-pct { color: var(--hp); min-width: 64px; font-size: 12.5px; }
+.boss-card.is-done { border-color: var(--gold-deep); }
+
+.habit-pick { display: flex; flex-wrap: wrap; gap: 6px; }
+.habit-pick button {
+  min-height: 40px;
+  padding: 7px 12px;
+  border-radius: var(--radius-sm);
+  border: 1.5px solid var(--border);
+  background: var(--bg-deep);
+  color: var(--text-dim);
+  font-weight: 700;
+  font-size: 13.5px;
+}
+.habit-pick button.on { background: var(--hp-deep); border-color: var(--hp); color: #fff; }
+
+/* ============ Hábitos dormidos (fuera de período) ============ */
+.card.is-sleeping { opacity: .55; }
+
+/* ============ Revisión semanal ============ */
+.review-list { display: grid; gap: 6px; margin-bottom: 6px; }
+.review-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 9px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-deep);
+  border: 1px solid var(--border);
+  font-size: 14.5px;
+}
+.review-row.total { border-color: var(--violet-strong); }
+.review-name { font-weight: 800; }
+.review-row small { color: var(--text-faint); font-size: 12px; }
+.trend { font-weight: 800; white-space: nowrap; }
+.trend.up { color: var(--green); }
+.trend.down { color: var(--danger); }
+.trend.flat { color: var(--text-dim); }
+
+.empty.small { padding: 22px 16px; }
+.empty.small svg { width: 38px; height: 38px; }
 
 /* ============ Responsive / accesibilidad ============ */
 @media (min-width: 700px) {
