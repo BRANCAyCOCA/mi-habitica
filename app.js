@@ -205,10 +205,9 @@ function defaultState() {
     rewards: [
       { id: uid(), title: "Salir de fiesta", cost: 150, timesBought: 0 },
       { id: uid(), title: "Comer chocolate", cost: 25, timesBought: 0 },
-      { id: uid(), title: "1 h de videojuegos", cost: 30, timesBought: 0 },
-      { id: uid(), title: "Dormir hasta tarde", cost: 40, timesBought: 0 },
+      { id: uid(), title: "1 partida con team", cost: 25, timesBought: 0 },
+      { id: uid(), title: "1 partida solo", cost: 50, timesBought: 0 },
       { id: uid(), title: "Maratón de series (2 h)", cost: 50, timesBought: 0 },
-      { id: uid(), title: "Pedir delivery", cost: 60, timesBought: 0 },
       { id: uid(), title: "Salida con amigos", cost: 80, timesBought: 0 },
       { id: uid(), title: "Compra caprichosa", cost: 200, timesBought: 0 },
     ],

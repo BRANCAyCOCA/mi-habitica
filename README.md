@@ -36,8 +36,8 @@ Una semana "normal" paga **~160-200 monedas**:
 | Gimnasio (flexible) | mín 3/semana (multa) · 5 = excelente (premio) | 12/visita | ~48 |
 | Clases ×4 (L,M,X,V) | asistencia mensual: 4 = premio · mín 3 (75%) o multa fuerte | 10/clase | ~40 |
 
-Los precios de la tienda están pensados contra ese ingreso: chocolate 25, videojuegos 30,
-dormir hasta tarde 40, series 50, delivery 60, salida con amigos 80, **fiesta 150**, capricho 200.
+Los precios de la tienda están pensados contra ese ingreso: chocolate 25, 1 partida con team 25,
+1 partida solo 50, series 50, salida con amigos 80, **fiesta 150**, capricho 200.
 La fiesta cuesta casi una semana entera de esfuerzo: si hubo buena semana, hay fiesta.
 
 Las 4 materias vienen precargadas con sus fechas reales de cursada (agosto-diciembre 2026)
