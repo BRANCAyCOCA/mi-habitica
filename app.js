@@ -735,14 +735,12 @@ function todayPending() {
     } else if (h.mode === "check") {
       if (h.days.includes(dow) && !h.completedToday) parts.push(esc(h.title));
     } else if (h.goalW) {
-      // ritmo: lo que deberías llevar acumulado hasta hoy para llegar a la meta semanal
-      let elapsed = 0;
-      for (let d = wStart; d <= today; d = addDays(d, 1)) {
-        if (h.days.includes(parseDateStr(d).getDay())) elapsed++;
+      // objetivo diario = meta semanal repartida entre los días programados
+      if (h.days.includes(dow)) {
+        const dailyTarget = Math.round(h.goalW / Math.max(1, h.days.length));
+        const falta = dailyTarget - (h.todayMinutes || 0);
+        if (falta > 0) parts.push(`${fmtMin(falta)} de ${esc(h.title)}`);
       }
-      const expected = Math.round(h.goalW * elapsed / Math.max(1, h.days.length));
-      const falta = expected - habitSumRange(h, wStart, addDays(wStart, 7));
-      if (falta > 0) parts.push(`${fmtMin(falta)} de ${esc(h.title)}`);
     } else if (h.days.includes(dow) && !h.todayMinutes) {
       parts.push(esc(h.title));
     }

@@ -1,5 +1,5 @@
 /* Service worker de Mi Aventura: app disponible sin conexión */
-const CACHE = "mi-aventura-v6";
+const CACHE = "mi-aventura-v7";
 const APP_SHELL = [
   ".",
   "index.html",
