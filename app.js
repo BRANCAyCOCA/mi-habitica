@@ -675,19 +675,6 @@ function confirmDialog({ title, text, okLabel = "Eliminar", onOk }) {
 }
 
 /* ---------- Avatar ---------- */
-function avatarSVG(level) {
-  const tier = level >= 20 ? "#67e8f9" : level >= 10 ? "#fbbf24" : level >= 5 ? "#cbd5e1" : "#d97706";
-  return `<svg viewBox="0 0 48 48" aria-hidden="true">
-    <rect x="10" y="14" width="28" height="26" rx="9" fill="#fcd9b8"/>
-    <path d="M10 24 Q10 8 24 8 Q38 8 38 24 L38 21 Q38 16 33 16 L15 16 Q10 16 10 21 Z" fill="${tier}"/>
-    <rect x="8" y="20" width="4" height="8" rx="2" fill="${tier}"/>
-    <rect x="36" y="20" width="4" height="8" rx="2" fill="${tier}"/>
-    <circle cx="18.5" cy="27" r="2.4" fill="#2b2350"/>
-    <circle cx="29.5" cy="27" r="2.4" fill="#2b2350"/>
-    <path d="M19 33 Q24 37 29 33" stroke="#b4552d" stroke-width="2.2" fill="none" stroke-linecap="round"/>
-  </svg>`;
-}
-
 /* ---------- Render: barra del héroe ---------- */
 function renderHero() {
   const p = state.player;
@@ -695,13 +682,13 @@ function renderHero() {
   const hpPct = clamp((p.hp / MAX_HP) * 100, 0, 100);
   const xpPct = clamp((p.xp / need) * 100, 0, 100);
   $("#heroBar").innerHTML = `
+    <p class="hero-motto">increase sacrifice or reduce desire</p>
     <div class="hero-row">
-      <div class="avatar-wrap">
-        <div class="avatar">${avatarSVG(p.level)}</div>
-        <span class="level-badge">Nv ${p.level}</span>
-      </div>
       <div class="hero-info">
-        <p class="hero-name">${esc(p.name || "Héroe")} <span class="hero-title">· ${esc(heroTitle(p.level))}</span></p>
+        <p class="hero-name">${esc(p.name || "Héroe")}
+          <span class="hero-title">· ${esc(heroTitle(p.level))}</span>
+          <span class="level-badge">Nv ${p.level}</span>
+        </p>
         <div class="bars">
           <div class="bar" role="meter" aria-label="Vida" aria-valuenow="${p.hp}" aria-valuemin="0" aria-valuemax="${MAX_HP}">
             <div class="bar-fill hp" style="width:${hpPct}%"></div>
