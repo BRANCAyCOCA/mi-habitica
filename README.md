@@ -79,7 +79,7 @@ Luego abre <http://localhost:8642> en tu navegador.
 | Archivo | Qué es |
 |---|---|
 | `index.html` | Estructura de la app |
-| `styles.css` | Tema visual RPG |
+| `styles.css` | Tema visual (dark minimal sobrio) |
 | `app.js` | Lógica del juego y de la interfaz |
 | `sw.js` + `manifest.webmanifest` | Soporte PWA (instalable y offline) |
 | `icons/` | Iconos de la app |
