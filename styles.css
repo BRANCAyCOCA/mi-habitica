@@ -698,6 +698,10 @@ h1, h2, h3 { font-family: var(--font-display); font-weight: 700; letter-spacing:
 }
 .days-row button.on { background: var(--violet-strong); border-color: var(--violet-strong); color: #fff; }
 
+/* Variante que envuelve cuando hay muchos días (registrar días pasados) */
+.seg.wrap, .days-row.wrap { flex-wrap: wrap; }
+.seg.wrap button, .days-row.wrap button { flex: 0 1 auto; padding: 0 14px; min-width: 56px; }
+
 .mile-edit-list { display: grid; gap: 8px; }
 .mile-edit-row { display: flex; gap: 8px; align-items: center; }
 .mile-edit-row input { flex: 1; }

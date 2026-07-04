@@ -862,13 +862,18 @@ function habitDoableOn(h, dateStr) {
     && h.days.includes(parseDateStr(dateStr).getDay());
 }
 
-// Días recientes (ayer y anteayer) que quedaron sin registrar
+// Días de esta semana (del lunes a ayer) en que se pudo hacer el hábito y quedaron sin registrar.
+// Acotado a la semana en curso: las semanas pasadas ya fueron evaluadas (premio/multa) y no se retocan.
 function missedRecentDays(h) {
+  const today = todayStr();
+  const wStart = weekStartStr(today);
   const out = [];
-  for (let i = 1; i <= 2; i++) {
-    const d = addDays(todayStr(), -i);
+  let d = addDays(today, -1);
+  let guard = 0;
+  while (d >= wStart && guard++ < 8) {
     const posible = h.flexible ? habitDoableOn(h, d) : habitRequiredOn(h, d);
     if (posible && !(h.log && h.log[d])) out.push(d);
+    d = addDays(d, -1);
   }
   return out;
 }
@@ -1005,35 +1010,44 @@ function completePast(h, date) {
   renderAll();
 }
 
-// Modal para completar un día pasado que quedó sin marcar (hábitos check)
+// Modal para registrar varios días pasados de esta semana que quedaron sin marcar (hábitos check)
 function backfillForm(h) {
   const missed = missedRecentDays(h);
   if (!missed.length) return;
   const labels = { 1: "Ayer", 2: "Anteayer" };
-  const opts = missed.map(d => {
+  const dayLabel = d => {
     const diff = Math.round((parseDateStr(todayStr()) - parseDateStr(d)) / 86400000);
-    return { val: d, label: `${labels[diff] || fmtShortDate(d)} (${fmtShortDate(d)})` };
-  });
+    const wd = parseDateStr(d).toLocaleDateString("es", { weekday: "short" }).replace(".", "");
+    return labels[diff] || `${wd} ${fmtShortDate(d)}`;
+  };
   openModal(`
     <div class="modal-inner">
-      <div class="modal-head"><h3>Completar día pasado</h3>
+      <div class="modal-head"><h3>Registrar días pasados</h3>
         <button class="icon-btn" data-close aria-label="Cerrar">${ICONS.x}</button></div>
-      <p class="confirm-text">¿Hiciste <strong>${esc(h.title)}</strong> y olvidaste marcarlo? Recuperas la vida perdida y tu racha se recalcula.</p>
-      <div class="field">
-        <label>¿Qué día?</label>
-        ${segHTML("bfday", opts, opts[0].val)}
+      <p class="confirm-text">Marca los días de esta semana en que hiciste <strong>${esc(h.title)}</strong> y olvidaste registrarlo. Recuperas la vida perdida y suma para tu meta semanal.</p>
+      <div class="field" id="f-bfdays">
+        <label>¿Qué días lo hiciste?</label>
+        <div class="days-row wrap" id="bfDays">
+          ${missed.map(d => `<button type="button" data-date="${d}" aria-pressed="false">${dayLabel(d)}</button>`).join("")}
+        </div>
+        <div class="err">Marca al menos un día.</div>
       </div>
       <div class="modal-actions">
         <button class="btn btn-ghost" data-close>Cancelar</button>
-        <button class="btn btn-primary" id="btnBackfill">${ICONS.check}Completar</button>
+        <button class="btn btn-primary" id="btnBackfill">${ICONS.check}Registrar</button>
       </div>
     </div>`);
-  wireSeg(modal);
+  $("#bfDays", modal).addEventListener("click", e => {
+    const b = e.target.closest("button");
+    if (!b) return;
+    b.classList.toggle("on");
+    b.setAttribute("aria-pressed", b.classList.contains("on"));
+  });
   $("#btnBackfill", modal).addEventListener("click", () => {
-    const date = segValue(modal, "bfday");
-    if (!date) return;
+    const dates = $$("#bfDays button.on", modal).map(b => b.dataset.date);
+    if (!dates.length) { $("#f-bfdays", modal).classList.add("has-err"); return; }
     modal.close();
-    completePast(h, date);
+    dates.sort().forEach(d => completePast(h, d));
   });
 }
 
@@ -1057,6 +1071,16 @@ function timeLogForm(h) {
   if (!h) return;
   const rate = habitPayout(h);
   const today = todayStr();
+  // Opciones de día: hoy y cada día anterior de esta semana (hasta el lunes)
+  const wStart = weekStartStr(today);
+  const dayOpts = [{ val: today, label: "Hoy" }];
+  let d = addDays(today, -1), guard = 0;
+  while (d >= wStart && guard++ < 8) {
+    const wd = parseDateStr(d).toLocaleDateString("es", { weekday: "short" }).replace(".", "");
+    const lbl = d === addDays(today, -1) ? "Ayer" : `${wd} ${parseDateStr(d).getDate()}`;
+    dayOpts.push({ val: d, label: lbl });
+    d = addDays(d, -1);
+  }
   openModal(`
     <div class="modal-inner">
       <div class="modal-head"><h3>Registrar tiempo</h3>
@@ -1064,11 +1088,9 @@ function timeLogForm(h) {
       <p class="confirm-text"><strong>${esc(h.title)}</strong> · paga ${rate} monedas por hora${h.todayMinutes ? ` · hoy llevas ${fmtMin(h.todayMinutes)}` : ""}</p>
       <div class="field">
         <label>¿Qué día?</label>
-        ${segHTML("qday", [
-          { val: today, label: "Hoy" },
-          { val: addDays(today, -1), label: "Ayer" },
-          { val: addDays(today, -2), label: "Anteayer" },
-        ], today)}
+        <div class="seg wrap" data-seg="qday">
+          ${dayOpts.map((o, i) => `<button type="button" data-val="${o.val}" class="${i === 0 ? "on" : ""}">${o.label}</button>`).join("")}
+        </div>
         <div class="hint" id="dayHint"></div>
       </div>
       <div class="field">
