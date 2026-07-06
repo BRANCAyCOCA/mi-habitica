@@ -159,6 +159,7 @@ function mkHabit(o) {
   return {
     id: uid(), title: "", notes: "", days: [1, 2, 3, 4, 5, 6, 0], difficulty: "normal",
     mode: "check", flexible: false, payout: 8, startDate: null, endDate: null,
+    dates: null, // si es un array de "YYYY-MM-DD", el hábito solo aplica esas fechas exactas (materias)
     goalW: 0, goalWMin: 0, goalM: 0, goalMMin: 0, bonus: null, penalty: null,
     streak: 0, best: 0, completedToday: false, todayMinutes: 0, todayLogs: [],
     totalMinutes: 0, log: {}, createdAt: todayStr(), ...o,
@@ -182,10 +183,14 @@ function defaultState() {
       mkHabit({ title: "Estudiar", notes: "1 a 2 h por día · mínimo 30 min", days: [1, 2, 3, 4, 5], mode: "tiempo", payout: 10, goalW: 450, goalWMin: 150, bonus: 25, penalty: 15 }),
       mkHabit({ title: "Meditar", notes: "10 min al día · mínimo 5", difficulty: "facil", mode: "tiempo", payout: 18, goalW: 70, goalWMin: 35, bonus: 10, penalty: 5 }),
       mkHabit({ title: "Ir al gimnasio", notes: "Mínimo 3 por semana · 5 = excelente", difficulty: "dificil", flexible: true, payout: 12, goalW: 5, goalWMin: 3, bonus: 30, penalty: 20 }),
-      mkHabit({ title: "Clase de Renta Fija", notes: "75% de asistencia o quedas libre", days: [1], payout: 10, goalM: 4, goalMMin: 3, bonus: 10, penalty: 15, startDate: "2026-08-03", endDate: "2026-11-30" }),
-      mkHabit({ title: "Clase de Riesgo Crediticio", notes: "75% de asistencia o quedas libre", days: [2], payout: 10, goalM: 4, goalMMin: 3, bonus: 10, penalty: 15, startDate: "2026-08-04", endDate: "2026-11-24" }),
-      mkHabit({ title: "Clase de Microeconomía", notes: "75% de asistencia o quedas libre", days: [3], payout: 10, goalM: 4, goalMMin: 3, bonus: 10, penalty: 15, startDate: "2026-08-05", endDate: "2026-12-02" }),
-      mkHabit({ title: "Clase de Derivados I", notes: "75% de asistencia o quedas libre", days: [5], payout: 10, goalM: 4, goalMMin: 3, bonus: 10, penalty: 15, startDate: "2026-08-07", endDate: "2026-11-27" }),
+      mkHabit({ title: "Clase de Renta Fija", notes: "Lunes · 16 clases · 4 faltas permitidas (75%)", days: [1], payout: 10, goalM: 4, goalMMin: 3, bonus: 10, penalty: 15, startDate: "2026-08-03", endDate: "2026-11-30",
+        dates: ["2026-08-03","2026-08-10","2026-08-22","2026-08-24","2026-08-31","2026-09-07","2026-09-14","2026-09-21","2026-09-28","2026-10-05","2026-10-19","2026-10-26","2026-11-02","2026-11-09","2026-11-16","2026-11-30"] }),
+      mkHabit({ title: "Clase de Riesgo Crediticio", notes: "Martes · 18 clases · 4 faltas permitidas (75%)", days: [2], payout: 10, goalM: 4, goalMMin: 3, bonus: 10, penalty: 15, startDate: "2026-08-04", endDate: "2026-11-24",
+        dates: ["2026-08-04","2026-08-11","2026-08-18","2026-08-25","2026-08-29","2026-09-01","2026-09-08","2026-09-15","2026-09-22","2026-09-29","2026-10-06","2026-10-13","2026-10-20","2026-10-27","2026-11-03","2026-11-10","2026-11-17","2026-11-24"] }),
+      mkHabit({ title: "Clase de Microeconomía", notes: "Miércoles · 18 clases · 4 faltas permitidas (75%)", days: [3], payout: 10, goalM: 4, goalMMin: 3, bonus: 10, penalty: 15, startDate: "2026-08-05", endDate: "2026-12-02",
+        dates: ["2026-08-05","2026-08-12","2026-08-19","2026-08-26","2026-09-02","2026-09-05","2026-09-09","2026-09-16","2026-09-23","2026-09-30","2026-10-07","2026-10-14","2026-10-21","2026-10-28","2026-11-04","2026-11-11","2026-11-18","2026-12-02"] }),
+      mkHabit({ title: "Clase de Derivados I", notes: "Viernes · 18 clases · 4 faltas permitidas (75%)", days: [5], payout: 10, goalM: 4, goalMMin: 3, bonus: 10, penalty: 15, startDate: "2026-08-07", endDate: "2026-11-27",
+        dates: ["2026-08-07","2026-08-14","2026-08-21","2026-08-28","2026-09-04","2026-09-11","2026-09-18","2026-09-25","2026-09-26","2026-10-02","2026-10-09","2026-10-16","2026-10-23","2026-10-30","2026-11-06","2026-11-13","2026-11-20","2026-11-27"] }),
     ],
     todos: [],    // {id,title,notes,due,difficulty,done,doneDate}
     // Metas del cuatrimestre: regularizar (2 parciales) y aprobar el final de cada materia
@@ -252,6 +257,7 @@ function normalizeState(st) {
     h.createdAt = h.createdAt || st.player?.createdAt || todayStr();
     h.startDate = h.startDate || null;
     h.endDate = h.endDate || null;
+    h.dates = Array.isArray(h.dates) && h.dates.length ? h.dates : null;
   }
   st.bosses = Array.isArray(st.bosses) ? st.bosses : [];
   for (const b of st.bosses) {
@@ -508,7 +514,7 @@ function runCron() {
     const dow = parseDateStr(d).getDay();
     for (const h of state.habits) {
       if (h.flexible) continue; // sin exigencia diaria: solo mandan sus metas semanales/mensuales
-      if (!h.days.includes(dow)) continue;
+      if (!habitScheduledOn(h, d)) continue;
       if (!habitActiveOn(h, d) || (h.createdAt || "") > d) continue; // materia fuera de cursada
       const done = d === state.lastCron ? habitDoneToday(h) : false;
       if (!done) {
@@ -720,15 +726,15 @@ function todayPending() {
       const falta = min - habitSumRange(h, wStart, addDays(wStart, 7));
       if (falta > 0) parts.push(`${esc(h.title)} ×${falta} esta semana`);
     } else if (h.mode === "check") {
-      if (h.days.includes(dow) && !h.completedToday) parts.push(esc(h.title));
+      if (habitScheduledOn(h, today) && !h.completedToday) parts.push(esc(h.title));
     } else if (h.goalW) {
       // objetivo diario = meta semanal repartida entre los días programados
-      if (h.days.includes(dow)) {
+      if (habitScheduledOn(h, today)) {
         const dailyTarget = Math.round(h.goalW / Math.max(1, h.days.length));
         const falta = dailyTarget - (h.todayMinutes || 0);
         if (falta > 0) parts.push(`${fmtMin(falta)} de ${esc(h.title)}`);
       }
-    } else if (h.days.includes(dow) && !h.todayMinutes) {
+    } else if (habitScheduledOn(h, today) && !h.todayMinutes) {
       parts.push(esc(h.title));
     }
   }
@@ -740,7 +746,7 @@ function renderHabitos() {
   const todayDow = new Date().getDay();
   const activos = state.habits.filter(h => habitActiveOn(h, todayStr()));
   const dormidos = state.habits.filter(h => !habitActiveOn(h, todayStr()));
-  const isToday = h => h.days.includes(todayDow);
+  const isToday = h => habitScheduledOn(h, todayStr());
   const todayHabits = activos.filter(isToday);
   const otherHabits = activos.filter(h => !isToday(h));
   const pending = todayPending();
@@ -846,12 +852,19 @@ function habitActiveOn(h, dateStr) {
   return (!h.startDate || dateStr >= h.startDate) && (!h.endDate || dateStr <= h.endDate);
 }
 
+// ¿El hábito está programado ese día? Materias con `dates`: solo esas fechas exactas
+// (respeta feriados y clases de sábado). El resto: por día de la semana.
+function habitScheduledOn(h, dateStr) {
+  if (Array.isArray(h.dates) && h.dates.length) return h.dates.includes(dateStr);
+  return h.days.includes(parseDateStr(dateStr).getDay());
+}
+
 // ¿El hábito exigía actividad ese día? (programado, vigente, sin descanso, no flexible)
 function habitRequiredOn(h, dateStr) {
   return !h.flexible
     && habitActiveOn(h, dateStr)
     && (h.createdAt || "") <= dateStr
-    && h.days.includes(parseDateStr(dateStr).getDay())
+    && habitScheduledOn(h, dateStr)
     && !restActive(dateStr);
 }
 
@@ -859,7 +872,7 @@ function habitRequiredOn(h, dateStr) {
 function habitDoableOn(h, dateStr) {
   return habitActiveOn(h, dateStr)
     && (h.createdAt || "") <= dateStr
-    && h.days.includes(parseDateStr(dateStr).getDay());
+    && habitScheduledOn(h, dateStr);
 }
 
 // Días de esta semana (del lunes a ayer) en que se pudo hacer el hábito y quedaron sin registrar.
@@ -1427,7 +1440,7 @@ function heatmapHTML() {
       let scheduled = 0, done = 0;
       for (const h of state.habits) {
         if ((h.createdAt || "") > date) continue;
-        if (!h.flexible && habitActiveOn(h, date) && h.days.includes(dow)) scheduled++;
+        if (!h.flexible && habitActiveOn(h, date) && habitScheduledOn(h, date)) scheduled++;
         if (h.log && h.log[date]) done++;
       }
       let lv = 0;
