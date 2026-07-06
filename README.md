@@ -1,7 +1,8 @@
 # Mi Aventura 🛡️
 
 Tu gestor personal de hábitos, tareas y metas gamificado, inspirado en Habitica.
-Todo se guarda **localmente en tu dispositivo** (no necesita internet ni cuenta).
+Funciona **sin internet ni cuenta** (guarda todo en tu dispositivo), y opcionalmente
+puede **sincronizarse entre iPhone y Mac** con Supabase (ver más abajo).
 
 ## Cómo funciona el juego
 
@@ -14,7 +15,7 @@ Todo se guarda **localmente en tu dispositivo** (no necesita internet ni cuenta)
 - **Mapa de constancia**: heatmap tipo GitHub de las últimas 17 semanas en el Perfil.
 - **Jefes**: convierte un examen o desafío en un monstruo con vida (pestaña Metas). El XP que ganas con los hábitos vinculados le hace daño; al derrotarlo cobras su botín. Editable: vida, botín y qué hábitos le pegan.
 - **Materias / cursadas**: un hábito puede tener fecha de inicio y fin (ej. "Clase de Cálculo", L y X, del 13 jul al 27 nov). Fuera de esas fechas duerme: no aparece como pendiente, no castiga ni cobra multas.
-- **Registrar días pasados**: hasta 2 días atrás. En hábitos por tiempo, el selector "Hoy/Ayer/Anteayer" del modal; en hábitos de completar, el botón de reloj-histórico que aparece cuando quedó un día sin marcar. Recuperas la vida que el cron te quitó ese día y la racha se recalcula.
+- **Registrar días pasados**: cubre toda la semana en curso (del lunes a ayer). En hábitos por tiempo, el selector de día del modal ofrece cada día de la semana; en hábitos de completar (gimnasio, clases), el botón de historial abre "Registrar días pasados", donde **marcas varios días a la vez** (ej. fui al gimnasio lun/mar/mié/jue y lo cargo el viernes). Recuperas la vida que el cron te quitó y suma a tu meta semanal. No se tocan semanas ya cerradas.
 - **Revisión semanal**: cada lunes, mini-reporte automático comparando la semana cerrada con la anterior (horas/días por hábito y XP). También disponible en Perfil → Revisión semanal.
 - **Pago por hábito**: cada hábito tiene su propio pago en monedas, editable desde el lápiz del hábito. Hay dos tipos de pago:
   - **Al completar**: paga un monto fijo al marcarlo (ej. ir al gimnasio paga 12).
@@ -70,9 +71,54 @@ Luego abre <http://localhost:8642> en tu navegador.
 
 ## Tus datos
 
-- Se guardan en `localStorage` bajo la clave `mi-aventura-v1`, solo en el navegador donde uses la app.
-- Desde **Perfil → Exportar mis datos** puedes descargar una copia JSON, e importarla en otro dispositivo.
-- **Importante**: los datos no se sincronizan solos entre iPhone y Mac; usa exportar/importar para moverlos.
+- Se guardan en `localStorage` bajo la clave `mi-aventura-v1`, en el navegador donde uses la app.
+- Desde **Perfil → Exportar mis datos** puedes descargar una copia JSON e importarla en otro dispositivo.
+- Con la **sincronización** activada (ver abajo), los datos viven además en la nube y se comparten entre dispositivos automáticamente.
+
+## Sincronización entre iPhone y Mac (Supabase, gratis)
+
+Con esto, cargás algo en el iPhone y lo ves en la Mac (y viceversa). Configuración por única vez:
+
+1. Entrá a [supabase.com](https://supabase.com) → **Start your project** → creá una cuenta y un proyecto (plan gratis). Elegí cualquier región cercana y una contraseña de base de datos.
+2. En el proyecto, abrí **SQL Editor** → **New query**, pegá esto y dale **Run**:
+
+   ```sql
+   create table mi_aventura (
+     code text primary key,
+     state jsonb,
+     rev bigint default 0,
+     updated_at timestamptz default now()
+   );
+   alter table mi_aventura enable row level security;
+   create policy "acceso por codigo" on mi_aventura
+     for all to anon using (true) with check (true);
+   ```
+
+3. Andá a **Project Settings → API** y copiá dos cosas:
+   - **Project URL** (algo como `https://xxxx.supabase.co`).
+   - **Project API keys → anon public** (una clave larga que empieza con `eyJ...`).
+4. En la app: **Perfil → Sincronización**, pegá la URL y la clave, e inventá un **código de sincronización** difícil de adivinar (ej. `toto-2026-9f3k`). Guardá.
+5. En tu **otro dispositivo**, abrí la app y en Sincronización pegá **la misma URL, la misma clave y el mismo código**. Listo: comparten datos.
+
+Notas:
+- Ante un conflicto gana la última edición (por marca de tiempo). Como sos un solo usuario en dos dispositivos, en la práctica no hay conflictos.
+- La `anon key` es pública por diseño; tu privacidad depende de que el **código de sincronización** sea secreto. Son datos de hábitos, de bajo riesgo, pero no lo compartas.
+- Si no configurás nada, la app sigue funcionando 100% local.
+
+## Publicar en la web e instalar en el iPhone (GitHub Pages)
+
+1. Creá una cuenta en [github.com](https://github.com) si no tenés, y creá un repositorio nuevo (ej. `mi-aventura`), público.
+2. Subí el contenido de esta carpeta al repo. Desde la terminal, en `/Users/sirch/Claudio`:
+
+   ```sh
+   git remote add origin https://github.com/TU_USUARIO/mi-aventura.git
+   git branch -M main
+   git push -u origin main
+   ```
+
+3. En GitHub: **Settings → Pages → Build and deployment → Source: Deploy from a branch**, rama `main`, carpeta `/ (root)`. Guardá.
+4. En 1–2 minutos queda publicada en `https://TU_USUARIO.github.io/mi-aventura/`.
+5. En el iPhone, abrí esa URL en **Safari** → botón Compartir → **Agregar a inicio**. Queda como una app con su ícono. (Repetí el paso de Sincronización ahí.)
 
 ## Archivos
 

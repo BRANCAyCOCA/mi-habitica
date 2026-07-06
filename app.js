@@ -223,6 +223,7 @@ function defaultState() {
     lastCron: todayStr(),
     lastWeekEvaluated: weekStartStr(todayStr()),  // lunes de la última semana ya premiada/penalizada
     lastMonthEvaluated: monthKey(todayStr()),     // "YYYY-MM" del último mes ya evaluado
+    updatedAt: 0,                                 // marca de tiempo para la sincronización (last-write-wins)
   };
 }
 
@@ -272,9 +273,17 @@ function normalizeState(st) {
   st.lastMonthEvaluated = st.lastMonthEvaluated || monthKey(todayStr());
   st.achievements = st.achievements && typeof st.achievements === "object" ? st.achievements : {};
   st.rest = st.rest && st.rest.from && st.rest.until ? st.rest : null;
+  st.updatedAt = st.updatedAt || 0;
   return st;
 }
 function save() {
+  state.updatedAt = Date.now();
+  persistRaw();
+  syncPushDebounced();
+}
+// Guarda en el dispositivo sin cambiar la marca de tiempo ni re-sincronizar
+// (se usa al adoptar el estado que viene de la nube)
+function persistRaw() {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
 }
 
@@ -1550,6 +1559,7 @@ function renderPerfil() {
     </div>` : ""}
     <div class="profile-actions">
       <button class="btn btn-ghost" data-act="review">${ICONS.calendar}Revisión semanal</button>
+      <button class="btn btn-ghost" data-act="sync">${ICONS.history}Sincronización <span class="sync-tag">${syncReady() ? "activada" : "off"}</span></button>
       <button class="btn btn-ghost" data-act="rest">${ICONS.sparkles}${restActive(todayStr()) ? `Descansando hasta el ${fmtShortDate(state.rest.until)} — extender` : "Modo descanso (vacaciones)"}</button>
       <button class="btn btn-ghost" data-act="rename">${ICONS.pencil}Cambiar nombre de héroe</button>
       <button class="btn btn-ghost" data-act="export">${ICONS.download}Exportar mis datos</button>
@@ -2184,6 +2194,7 @@ document.addEventListener("click", (e) => {
     "new-reward": () => rewardForm(null),
     "rename": () => nameForm(),
     "rest": () => restForm(),
+    "sync": () => syncForm(),
     "export": () => exportData(),
     "import": () => $("#importFile").click(),
     "reset": () => resetAll(),
@@ -2199,15 +2210,131 @@ document.addEventListener("change", (e) => {
 });
 
 // Al volver a la app (ej. PWA reabierta al día siguiente), revisar el cambio de día
+// y traer lo último de la nube (por si lo cargaste desde el otro dispositivo)
 document.addEventListener("visibilitychange", () => {
-  if (!document.hidden) { runCron(); renderAll(); }
+  if (!document.hidden) { runCron(); renderAll(); syncPull({ announce: true }); }
 });
+
+/* ---------- Sincronización en la nube (Supabase) ----------
+   Guarda todo tu progreso en una fila de Supabase identificada por tu "código
+   de sincronización". Usá el mismo código en el iPhone y en la Mac y verás los
+   mismos datos. Sin configurar, la app funciona igual (solo local).
+   Resolución de conflictos: gana la última edición (por marca de tiempo). */
+const SYNC_KEY = "mi-aventura-sync";
+let syncCfg = loadSyncCfg();
+let syncStatus = "off"; // off | ok | error | syncing
+let syncTimer = null;
+
+function loadSyncCfg() {
+  try { return JSON.parse(localStorage.getItem(SYNC_KEY)) || {}; } catch { return {}; }
+}
+function saveSyncCfg(c) {
+  syncCfg = c;
+  localStorage.setItem(SYNC_KEY, JSON.stringify(c));
+}
+function syncReady() {
+  return !!(syncCfg.url && syncCfg.key && syncCfg.code);
+}
+function setSyncStatus(s) {
+  syncStatus = s;
+  const el = $("#syncStatus");
+  if (el) el.textContent = syncStatusText();
+}
+function syncStatusText() {
+  if (!syncReady()) return "Sin configurar (solo en este dispositivo)";
+  return { ok: "Sincronizado ✓", error: "Error de conexión — reintentará", syncing: "Sincronizando…", off: "Listo" }[syncStatus] || "Listo";
+}
+function syncHeaders() {
+  return { apikey: syncCfg.key, Authorization: `Bearer ${syncCfg.key}`, "Content-Type": "application/json" };
+}
+
+// Sube el estado local a la nube (con rebote para no saturar)
+function syncPushDebounced() {
+  if (!syncReady()) return;
+  clearTimeout(syncTimer);
+  syncTimer = setTimeout(syncPush, 1500);
+}
+async function syncPush() {
+  if (!syncReady()) return;
+  setSyncStatus("syncing");
+  try {
+    const res = await fetch(`${syncCfg.url}/rest/v1/mi_aventura`, {
+      method: "POST",
+      headers: { ...syncHeaders(), Prefer: "resolution=merge-duplicates,return=minimal" },
+      body: JSON.stringify([{ code: syncCfg.code, state, rev: state.updatedAt || 0 }]),
+    });
+    setSyncStatus(res.ok ? "ok" : "error");
+  } catch { setSyncStatus("error"); }
+}
+
+// Trae el estado de la nube; si es más nuevo que el local, lo adopta
+async function syncPull({ announce = false } = {}) {
+  if (!syncReady()) return;
+  setSyncStatus("syncing");
+  try {
+    const res = await fetch(`${syncCfg.url}/rest/v1/mi_aventura?code=eq.${encodeURIComponent(syncCfg.code)}&select=state,rev`, { headers: syncHeaders() });
+    if (!res.ok) { setSyncStatus("error"); return; }
+    const rows = await res.json();
+    setSyncStatus("ok");
+    if (!rows.length) { syncPush(); return; }        // primera vez: sube lo local
+    const remote = rows[0].state;
+    const remoteRev = rows[0].rev || remote?.updatedAt || 0;
+    if (remoteRev > (state.updatedAt || 0)) {
+      state = normalizeState({ ...defaultState(), ...remote, player: { ...defaultState().player, ...remote.player } });
+      persistRaw();                                  // adoptar sin re-subir
+      runCron();
+      renderAll();
+      if (announce) toast("Datos actualizados desde la nube", "info", ICONS.download);
+    } else if ((state.updatedAt || 0) > remoteRev) {
+      syncPush();                                    // lo local es más nuevo
+    }
+  } catch { setSyncStatus("error"); }
+}
+
+function syncForm() {
+  openModal(`
+    <div class="modal-inner">
+      <div class="modal-head"><h3>Sincronización</h3>
+        <button class="icon-btn" data-close aria-label="Cerrar">${ICONS.x}</button></div>
+      <p class="confirm-text">Guardá tu progreso en la nube y compartilo entre el iPhone y la Mac. Usá el <strong>mismo código</strong> en ambos. Los pasos para crear tu proyecto Supabase gratis están en el README.</p>
+      <div class="field" id="f-url">
+        <label for="inpUrl">URL del proyecto Supabase</label>
+        <input type="text" id="inpUrl" value="${esc(syncCfg.url || "")}" placeholder="https://xxxx.supabase.co" autocomplete="off" autocapitalize="off" spellcheck="false">
+      </div>
+      <div class="field">
+        <label for="inpKey">Clave pública (anon key)</label>
+        <input type="text" id="inpKey" value="${esc(syncCfg.key || "")}" placeholder="eyJhbGciOi..." autocomplete="off" autocapitalize="off" spellcheck="false">
+      </div>
+      <div class="field">
+        <label for="inpCode">Tu código de sincronización</label>
+        <input type="text" id="inpCode" value="${esc(syncCfg.code || "")}" placeholder="ej: toto-2026-secreto" autocomplete="off" autocapitalize="off" spellcheck="false">
+        <div class="hint">Inventá un código difícil de adivinar. El mismo en todos tus dispositivos.</div>
+      </div>
+      <p class="confirm-text" id="syncStatus">${syncStatusText()}</p>
+      <div class="modal-actions">
+        ${syncReady() ? `<button class="btn btn-ghost" id="btnSyncNow">Sincronizar ahora</button>` : ""}
+        <button class="btn btn-primary" id="btnSyncSave">Guardar</button>
+      </div>
+    </div>`);
+  $("#btnSyncSave", modal).addEventListener("click", () => {
+    const url = $("#inpUrl", modal).value.trim().replace(/\/+$/, "");
+    const key = $("#inpKey", modal).value.trim();
+    const code = $("#inpCode", modal).value.trim();
+    saveSyncCfg({ url, key, code });
+    modal.close();
+    if (syncReady()) { toast("Sincronización activada", "info", ICONS.upload); syncPull({ announce: true }); }
+    else toast("Sincronización desactivada", "info", ICONS.x);
+    renderAll();
+  });
+  $("#btnSyncNow", modal)?.addEventListener("click", () => { modal.close(); syncPull({ announce: true }); });
+}
 
 /* ---------- Arranque ---------- */
 runCron();
 renderAll();
 if (!state.player.name) nameForm({ firstTime: true });
 else maybeShowWeeklyReview();
+if (syncReady()) syncPull({ announce: false });
 
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => {}));
