@@ -2221,12 +2221,19 @@ document.addEventListener("visibilitychange", () => {
    mismos datos. Sin configurar, la app funciona igual (solo local).
    Resolución de conflictos: gana la última edición (por marca de tiempo). */
 const SYNC_KEY = "mi-aventura-sync";
+// URL y clave pública de tu proyecto Supabase, precargadas para no pegarlas a mano.
+// (La clave "publishable" es pública por diseño; lo que protege tus datos es el código.)
+const SYNC_DEFAULTS = {
+  url: "https://lnmumggzyngtqazgpjlr.supabase.co",
+  key: "sb_publishable_Pcno6sjmyQX7aCgWzG7A9g_GATbORTH",
+};
 let syncCfg = loadSyncCfg();
 let syncStatus = "off"; // off | ok | error | syncing
 let syncTimer = null;
 
 function loadSyncCfg() {
-  try { return JSON.parse(localStorage.getItem(SYNC_KEY)) || {}; } catch { return {}; }
+  try { return { ...SYNC_DEFAULTS, ...(JSON.parse(localStorage.getItem(SYNC_KEY)) || {}) }; }
+  catch { return { ...SYNC_DEFAULTS }; }
 }
 function saveSyncCfg(c) {
   syncCfg = c;
@@ -2307,8 +2314,8 @@ function syncForm() {
       </div>
       <div class="field">
         <label for="inpCode">Tu código de sincronización</label>
-        <input type="text" id="inpCode" value="${esc(syncCfg.code || "")}" placeholder="ej: toto-2026-secreto" autocomplete="off" autocapitalize="off" spellcheck="false">
-        <div class="hint">Inventá un código difícil de adivinar. El mismo en todos tus dispositivos.</div>
+        <input type="text" id="inpCode" value="${esc(syncCfg.code || ("mi-aventura-" + Math.random().toString(36).slice(2, 9)))}" placeholder="ej: toto-2026-secreto" autocomplete="off" autocapitalize="off" spellcheck="false">
+        <div class="hint">Ya te sugerimos uno secreto. Anotalo y usá <strong>el mismo</strong> en el iPhone. Podés cambiarlo si querés.</div>
       </div>
       <p class="confirm-text" id="syncStatus">${syncStatusText()}</p>
       <div class="modal-actions">
