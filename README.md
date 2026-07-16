@@ -1,8 +1,17 @@
 # Mi Aventura 🛡️
 
+**App en vivo: https://brancaycoca.github.io/mi-habitica/**
+(en el iPhone: abrila en Safari → Compartir → *Agregar a inicio*)
+
 Tu gestor personal de hábitos, tareas y metas gamificado, inspirado en Habitica.
 Funciona **sin internet ni cuenta** (guarda todo en tu dispositivo), y opcionalmente
 puede **sincronizarse entre iPhone y Mac** con Supabase (ver más abajo).
+
+## Publicar cambios
+
+El repo local (`/Users/sirch/Claudio`) es la fuente de verdad. Para publicar:
+`git push` — GitHub Pages reconstruye solo en ~1 minuto.
+Al cambiar `app.js` o `styles.css`, subir el `?v=N` en `index.html` y el `CACHE` de `sw.js`.
 
 ## Cómo funciona el juego
 
