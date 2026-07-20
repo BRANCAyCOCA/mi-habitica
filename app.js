@@ -1559,7 +1559,7 @@ function renderPerfil() {
     </div>` : ""}
     <div class="profile-actions">
       <button class="btn btn-ghost" data-act="review">${ICONS.calendar}Revisión semanal</button>
-      <button class="btn btn-ghost" data-act="sync">${ICONS.history}Sincronización <span class="sync-tag">${syncReady() ? "activada" : "off"}</span></button>
+      <button class="btn btn-ghost" data-act="sync">${ICONS.history}Sincronización <span class="sync-tag">${syncReady() ? esc(syncCfg.code) : "off"}</span></button>
       <button class="btn btn-ghost" data-act="rest">${ICONS.sparkles}${restActive(todayStr()) ? `Descansando hasta el ${fmtShortDate(state.rest.until)} — extender` : "Modo descanso (vacaciones)"}</button>
       <button class="btn btn-ghost" data-act="rename">${ICONS.pencil}Cambiar nombre de héroe</button>
       <button class="btn btn-ghost" data-act="export">${ICONS.download}Exportar mis datos</button>
@@ -2314,8 +2314,8 @@ function syncForm() {
       </div>
       <div class="field">
         <label for="inpCode">Tu código de sincronización</label>
-        <input type="text" id="inpCode" value="${esc(syncCfg.code || ("mi-aventura-" + Math.random().toString(36).slice(2, 9)))}" placeholder="ej: toto-2026-secreto" autocomplete="off" autocapitalize="off" spellcheck="false">
-        <div class="hint">Ya te sugerimos uno secreto. Anotalo y usá <strong>el mismo</strong> en el iPhone. Podés cambiarlo si querés.</div>
+        <input type="text" id="inpCode" value="${esc(syncCfg.code || "")}" placeholder="el mismo en todos tus dispositivos" autocomplete="off" autocapitalize="off" spellcheck="false">
+        <div class="hint">Escribí el <strong>mismo código exacto</strong> en el iPhone y en la Mac. Si ya lo configuraste en un dispositivo, poné ese idéntico (no inventes uno nuevo).</div>
       </div>
       <p class="confirm-text" id="syncStatus">${syncStatusText()}</p>
       <div class="modal-actions">
