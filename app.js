@@ -158,7 +158,7 @@ function habitSumRange(h, from, toExcl) {
 function mkHabit(o) {
   return {
     id: uid(), title: "", notes: "", days: [1, 2, 3, 4, 5, 6, 0], difficulty: "normal",
-    mode: "check", flexible: false, payout: 8, startDate: null, endDate: null,
+    mode: "check", flexible: false, payout: 8, defaultMin: 30, startDate: null, endDate: null,
     dates: null, // si es un array de "YYYY-MM-DD", el hábito solo aplica esas fechas exactas (materias)
     goalW: 0, goalWMin: 0, goalM: 0, goalMMin: 0, bonus: null, penalty: null,
     streak: 0, best: 0, completedToday: false, todayMinutes: 0, todayLogs: [],
@@ -181,7 +181,7 @@ function defaultState() {
     },
     habits: [
       mkHabit({ title: "Estudiar", notes: "1 a 2 h por día · mínimo 30 min", days: [1, 2, 3, 4, 5], mode: "tiempo", payout: 10, goalW: 450, goalWMin: 150, bonus: 25, penalty: 15 }),
-      mkHabit({ title: "Meditar", notes: "10 min al día · mínimo 5", difficulty: "facil", mode: "tiempo", payout: 18, goalW: 70, goalWMin: 35, bonus: 10, penalty: 5 }),
+      mkHabit({ title: "Meditar", notes: "10 min al día · mínimo 5", difficulty: "facil", mode: "tiempo", payout: 18, defaultMin: 10, goalW: 70, goalWMin: 35, bonus: 10, penalty: 5 }),
       mkHabit({ title: "Ir al gimnasio", notes: "Mínimo 3 por semana · 5 = excelente", difficulty: "dificil", flexible: true, payout: 12, goalW: 5, goalWMin: 3, bonus: 30, penalty: 20 }),
       mkHabit({ title: "Clase de Renta Fija", notes: "Lunes · 16 clases · 4 faltas permitidas (75%)", days: [1], payout: 10, goalM: 4, goalMMin: 3, bonus: 10, penalty: 15, startDate: "2026-08-03", endDate: "2026-11-30",
         dates: ["2026-08-03","2026-08-10","2026-08-22","2026-08-24","2026-08-31","2026-09-07","2026-09-14","2026-09-21","2026-09-28","2026-10-05","2026-10-19","2026-10-26","2026-11-02","2026-11-09","2026-11-16","2026-11-30"] }),
@@ -259,6 +259,7 @@ function normalizeState(st) {
     h.startDate = h.startDate || null;
     h.endDate = h.endDate || null;
     h.dates = Array.isArray(h.dates) && h.dates.length ? h.dates : null;
+    h.defaultMin = (Number.isFinite(Number(h.defaultMin)) && h.defaultMin >= 1) ? Math.round(h.defaultMin) : 30;
   }
   st.bosses = Array.isArray(st.bosses) ? st.bosses : [];
   for (const b of st.bosses) {
@@ -1121,7 +1122,7 @@ function timeLogForm(h) {
       </div>
       <div class="field" id="f-min">
         <label for="inpMin">Minutos</label>
-        <input type="number" id="inpMin" value="30" min="1" max="1440" inputmode="numeric">
+        <input type="number" id="inpMin" value="${h.defaultMin || 30}" min="1" max="1440" inputmode="numeric">
         <div class="err">Ingresa los minutos (mínimo 1).</div>
         <div class="hint" id="minHint"></div>
       </div>
@@ -1651,6 +1652,11 @@ function habitForm(habit) {
         <div class="err">El pago debe ser un número de 0 o más.</div>
         <div class="hint" id="payoutHint">Cuántas monedas te paga este hábito cada vez que lo completes.</div>
       </div>
+      <div class="field" id="f-defmin">
+        <label for="inpDefMin">Minutos por defecto al registrar</label>
+        <input type="number" id="inpDefMin" value="${h.defaultMin || 30}" min="1" max="1440" inputmode="numeric">
+        <div class="hint">El valor que aparece precargado al tocar el reloj (podés cambiarlo cada vez).</div>
+      </div>
       <p class="section-label" style="margin-top:18px">Objetivos y premio extra (opcional)</p>
       <div class="goal-fields">
         <div class="field">
@@ -1699,6 +1705,7 @@ function habitForm(habit) {
     $("#payoutHint", modal).textContent = time
       ? "Tarifa por hora: se paga proporcional (ej. 10/h → 30 min pagan 5)."
       : "Cuántas monedas te paga este hábito cada vez que lo completes.";
+    $("#f-defmin", modal).style.display = time ? "" : "none";
     $("#daysHint", modal).textContent = flex
       ? "Días en los que puede hacerse (faltar no quita vida)."
       : "Si no lo completas un día programado, pierdes vida.";
@@ -1753,6 +1760,7 @@ function habitForm(habit) {
       mode,
       flexible: segValue(modal, "flex") === "flex",
       payout,
+      defaultMin: (() => { const n = Math.round(Number($("#inpDefMin", modal).value)); return (Number.isFinite(n) && n >= 1 && n <= 1440) ? n : 30; })(),
       startDate,
       endDate,
       goalW: readGoal("#inpGoalW"),
