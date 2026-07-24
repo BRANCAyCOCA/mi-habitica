@@ -88,6 +88,8 @@ const ICONS = {
   sparkles: I('<path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z"/>'),
   sword: I('<path d="m14.5 17.5 3 3 3-3-3-3"/><path d="M6.5 6.5 3 3l3.5-.5L18 14"/><path d="m3 21 6-6"/><path d="M14 4l6 6"/>'),
   history: I('<path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/>'),
+  chevronL: I('<path d="m15 18-6-6 6-6"/>'),
+  chevronR: I('<path d="m9 18 6-6-6-6"/>'),
 };
 
 /* ---------- Utilidades ---------- */
@@ -97,6 +99,7 @@ const uid = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, c =>
   ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const clamp = (n, min, max) => Math.max(min, Math.min(max, n));
+const cap = (s) => s ? s.charAt(0).toUpperCase() + s.slice(1) : s;
 
 function todayStr(d = new Date()) {
   const y = d.getFullYear(), m = String(d.getMonth() + 1).padStart(2, "0"), day = String(d.getDate()).padStart(2, "0");
@@ -138,6 +141,12 @@ function nextMonthKey(mk) {
   let [y, m] = mk.split("-").map(Number);
   m++;
   if (m > 12) { m = 1; y++; }
+  return `${y}-${String(m).padStart(2, "0")}`;
+}
+function prevMonthKey(mk) {
+  let [y, m] = mk.split("-").map(Number);
+  m--;
+  if (m < 1) { m = 12; y--; }
   return `${y}-${String(m).padStart(2, "0")}`;
 }
 // Suma del registro de un hábito en [desde, hasta) — check: días hechos · tiempo: minutos
@@ -217,6 +226,7 @@ function defaultState() {
       { id: uid(), title: "Compra caprichosa", cost: 200, timesBought: 0 },
     ],
     history: {},  // {fecha: xp ganado}
+    ledger: [],   // [{d:fecha, src:"habit:<id>"|"todo"|"milestone"|"goal"|"boss"|"achievement"|"weekly"|"monthly"|"penalty"|"reward:<id>"|"rest", xp, coins}] — coins + gana, − gasta/deshace
     achievements: {},  // {id: fecha en que se logró}
     rest: null,        // {from, until} modo descanso activo (se compra con monedas o vida)
     lastReviewShown: weekStartStr(todayStr()),  // lunes de la última revisión semanal mostrada
@@ -275,6 +285,7 @@ function normalizeState(st) {
   st.achievements = st.achievements && typeof st.achievements === "object" ? st.achievements : {};
   st.rest = st.rest && st.rest.from && st.rest.until ? st.rest : null;
   st.updatedAt = st.updatedAt || 0;
+  st.ledger = Array.isArray(st.ledger) ? st.ledger : [];
   return st;
 }
 function save() {
@@ -304,12 +315,23 @@ function recordHistory(xp) {
   while (keys.length > 60) delete state.history[keys.shift()];
 }
 
-function grant(xp, coins, msg) {
+// Registra un movimiento en el ledger (coins: + gana, − gasta/deshace)
+function recordLedger(src, xp, coins) {
+  if (!coins && !xp) return;
+  state.ledger.push({ d: todayStr(), src: src || "otro", xp: xp || 0, coins: coins || 0 });
+  if (state.ledger.length > 1500) {
+    const cutoff = addDays(todayStr(), -180);
+    state.ledger = state.ledger.filter(e => e.d >= cutoff);
+  }
+}
+
+function grant(xp, coins, msg, src) {
   const p = state.player;
   p.xp += xp;
   p.coins += coins;
   p.coinsEarned += coins;
   recordHistory(xp);
+  recordLedger(src, xp, coins);
   let leveled = false;
   while (p.xp >= xpNeeded(p.level)) {
     p.xp -= xpNeeded(p.level);
@@ -321,12 +343,13 @@ function grant(xp, coins, msg) {
   if (leveled) celebrateLevelUp();
 }
 
-function ungrant(xp, coins) {
+function ungrant(xp, coins, src) {
   const p = state.player;
   p.xp = Math.max(0, p.xp - xp);
   p.coins = Math.max(0, p.coins - coins);
   p.coinsEarned = Math.max(0, p.coinsEarned - coins);
   recordHistory(-xp);
+  recordLedger(src, -xp, -coins);
   toast(`Deshecho: −${xp} XP · −${coins} monedas`, "info", ICONS.clock);
 }
 
@@ -355,6 +378,7 @@ function checkAchievements() {
     p.coins += a.coins;
     p.coinsEarned += a.coins;
     if (a.xp) recordHistory(a.xp);
+    recordLedger("achievement", a.xp, a.coins);
     earned = true;
     toast(`Logro: ${a.title} · +${a.xp} XP${a.coins ? ` +${a.coins} monedas` : ""}`, "gain", ICONS.trophy);
   }
@@ -425,6 +449,7 @@ function restForm() {
       if (p.coins < cost) { toast(`Te faltan monedas: cuesta ${cost} y tienes ${p.coins}`, "hurt", ICONS.coin); return; }
       p.coins -= cost;
       p.coinsSpent += cost;
+      recordLedger("rest", 0, -cost);
     } else {
       const cost = d * REST_HP_PER_DAY;
       if (p.hp - cost < 1) { toast(`No te alcanza la vida: cuesta ${cost} HP y tienes ${p.hp}`, "hurt", ICONS.heart); return; }
@@ -477,14 +502,14 @@ function evalPeriod(h, from, toExcl, labelPeriodo, mult, events) {
   const fmt = v => h.mode === "tiempo" ? fmtMin(v) : `${v} día${v === 1 ? "" : "s"}`;
   if (target && sum >= target) {
     const coins = habitBonus(h) * mult, xp = 20 * mult;
-    events.push({ kind: "bonus", coins, xp, hp: 0, text: `${h.title}: ${fmt(sum)} ${labelPeriodo} (meta: ${fmt(target)}) → premio +${coins} monedas, +${xp} XP` });
+    events.push({ kind: "bonus", src: mult === 1 ? "weekly" : "monthly", coins, xp, hp: 0, text: `${h.title}: ${fmt(sum)} ${labelPeriodo} (meta: ${fmt(target)}) → premio +${coins} monedas, +${xp} XP` });
   } else if (min && sum < min) {
     // Si el descanso tocó este período, se perdona la multa
     if (state.rest && state.rest.from < toExcl && state.rest.until >= from) return;
     // En hábitos flexibles, no llegar al mínimo rompe la racha (su "día fallado")
     if (h.flexible) h.streak = 0;
     const coins = habitPenalty(h) * mult, hp = 4 * mult;
-    events.push({ kind: "penalty", coins: -coins, xp: 0, hp: -hp, text: `${h.title}: solo ${fmt(sum)} ${labelPeriodo} (mínimo: ${fmt(min)}) → multa −${coins} monedas, −${hp} HP` });
+    events.push({ kind: "penalty", src: "penalty", coins: -coins, xp: 0, hp: -hp, text: `${h.title}: solo ${fmt(sum)} ${labelPeriodo} (mínimo: ${fmt(min)}) → multa −${coins} monedas, −${hp} HP` });
   }
 }
 
@@ -556,6 +581,7 @@ function runCron() {
     p.coins = Math.max(0, p.coins + ev.coins);
     if (ev.coins > 0) p.coinsEarned += ev.coins;
     if (ev.kind === "bonus") p.weeklyBonuses = (p.weeklyBonuses || 0) + 1;
+    if (ev.src && (ev.coins || ev.xp)) recordLedger(ev.src, ev.xp > 0 ? ev.xp : 0, ev.coins);
     p.hp += ev.hp;
     if (ev.xp > 0) {
       p.xp += ev.xp;
@@ -940,7 +966,7 @@ function toggleHabit(id) {
     const m = streakMult(h.streak);
     const coins = Math.round(habitPayout(h) * m);
     state.player.totalCompleted++;
-    grant(xp, coins, `racha ${h.streak}${m > 1 ? ` ×${m.toFixed(1)}` : ""}`);
+    grant(xp, coins, `racha ${h.streak}${m > 1 ? ` ×${m.toFixed(1)}` : ""}`, `habit:${h.id}`);
     damageBosses(h.id, xp);
   } else {
     // deshacer con el mismo multiplicador con que se pagó
@@ -950,7 +976,7 @@ function toggleHabit(id) {
     delete h.log[todayStr()];
     h.streak = Math.max(0, h.streak - 1);
     state.player.totalCompleted = Math.max(0, state.player.totalCompleted - 1);
-    ungrant(xp, coins);
+    ungrant(xp, coins, `habit:${h.id}`);
     healBosses(h.id, xp);
   }
   checkAchievements();
@@ -978,7 +1004,7 @@ function logTime(id, minutes) {
   h.totalMinutes = (h.totalMinutes || 0) + min;
   h.log[todayStr()] = h.todayMinutes;
   h.todayLogs.push({ min, xp, coins, streakInc });
-  grant(xp, coins, `${fmtMin(h.todayMinutes)} hoy${m > 1 ? ` ×${m.toFixed(1)}` : ""}`);
+  grant(xp, coins, `${fmtMin(h.todayMinutes)} hoy${m > 1 ? ` ×${m.toFixed(1)}` : ""}`, `habit:${h.id}`);
   damageBosses(h.id, xp);
   checkAchievements();
   save();
@@ -1009,7 +1035,7 @@ function logTimePast(h, minutes, date) {
     if (h.flexible) { h.streak++; h.best = Math.max(h.best || 0, h.streak); }
   }
   recalcStreak(h);
-  grant(xp, coins, `${fmtMin(min)} el ${fmtShortDate(date)}`);
+  grant(xp, coins, `${fmtMin(min)} el ${fmtShortDate(date)}`, `habit:${h.id}`);
   damageBosses(h.id, xp);
   checkAchievements();
   save();
@@ -1026,7 +1052,7 @@ function completePast(h, date) {
   if (h.flexible) { h.streak++; h.best = Math.max(h.best || 0, h.streak); }
   recalcStreak(h);
   const m = streakMult(h.streak);
-  grant(xp, Math.round(habitPayout(h) * m), `completado el ${fmtShortDate(date)}`);
+  grant(xp, Math.round(habitPayout(h) * m), `completado el ${fmtShortDate(date)}`, `habit:${h.id}`);
   damageBosses(h.id, xp);
   checkAchievements();
   save();
@@ -1084,7 +1110,7 @@ function undoTimeLog(id) {
   else delete h.log[todayStr()];
   if (log.streakInc) h.streak = Math.max(0, h.streak - 1);
   if (h.todayMinutes === 0) state.player.totalCompleted = Math.max(0, state.player.totalCompleted - 1);
-  ungrant(log.xp, log.coins);
+  ungrant(log.xp, log.coins, `habit:${h.id}`);
   healBosses(h.id, log.xp);
   save();
   renderAll();
@@ -1200,7 +1226,7 @@ function healBosses(habitId, amount) {
 function defeatBoss(b) {
   b.done = true;
   b.defeatedAt = todayStr();
-  grant(bossXP(b), b.loot || 0, `¡${b.title} derrotado!`);
+  grant(bossXP(b), b.loot || 0, `¡${b.title} derrotado!`, "boss");
   openModal(`
     <div class="modal-inner celebrate">
       <div class="big-ico" style="color:var(--gold)">${ICONS.skull}</div>
@@ -1263,12 +1289,12 @@ function toggleTodo(id) {
     todo.done = true;
     todo.doneDate = todayStr();
     state.player.totalCompleted++;
-    grant(r.xp, r.coins);
+    grant(r.xp, r.coins, "", "todo");
   } else {
     todo.done = false;
     todo.doneDate = null;
     state.player.totalCompleted = Math.max(0, state.player.totalCompleted - 1);
-    ungrant(r.xp, r.coins);
+    ungrant(r.xp, r.coins, "todo");
   }
   checkAchievements();
   save();
@@ -1376,16 +1402,16 @@ function toggleMilestone(goalId, mid) {
   if (!m.done) {
     m.done = true;
     state.player.totalCompleted++;
-    grant(REWARD_MILESTONE.xp, REWARD_MILESTONE.coins, "hito logrado");
+    grant(REWARD_MILESTONE.xp, REWARD_MILESTONE.coins, "hito logrado", "milestone");
     if (g.milestones.every(x => x.done)) {
       g.done = true;
-      grant(REWARD_GOAL.xp, REWARD_GOAL.coins, "¡META COMPLETA!");
+      grant(REWARD_GOAL.xp, REWARD_GOAL.coins, "¡META COMPLETA!", "goal");
     }
   } else {
     m.done = false;
     state.player.totalCompleted = Math.max(0, state.player.totalCompleted - 1);
-    if (g.done) { g.done = false; ungrant(REWARD_GOAL.xp, REWARD_GOAL.coins); }
-    ungrant(REWARD_MILESTONE.xp, REWARD_MILESTONE.coins);
+    if (g.done) { g.done = false; ungrant(REWARD_GOAL.xp, REWARD_GOAL.coins, "goal"); }
+    ungrant(REWARD_MILESTONE.xp, REWARD_MILESTONE.coins, "milestone");
   }
   checkAchievements();
   save();
@@ -1429,6 +1455,7 @@ function buyReward(id) {
   state.player.coinsSpent += r.cost;
   state.player.rewardsBought++;
   r.timesBought = (r.timesBought || 0) + 1;
+  recordLedger(`reward:${r.id}`, 0, -r.cost);
   toast(`¡Disfruta: ${r.title}!`, "gain", ICONS.gift);
   checkAchievements();
   save();
@@ -1489,6 +1516,145 @@ function badgesHTML() {
     </div>`;
 }
 
+/* ---------- Detalle de rendimiento (drill-down) ---------- */
+function ledgerSourceLabel(src) {
+  if (src.startsWith("habit:")) { const h = state.habits.find(x => x.id === src.slice(6)); return h ? h.title : "Hábito borrado"; }
+  if (src.startsWith("reward:")) { const r = state.rewards.find(x => x.id === src.slice(7)); return r ? r.title : "Recompensa borrada"; }
+  return ({ todo: "Tareas", milestone: "Hitos de metas", goal: "Metas completadas", boss: "Jefes", achievement: "Logros", weekly: "Premios semanales", monthly: "Premios mensuales", penalty: "Multas", rest: "Descanso", otro: "Otros" })[src] || src;
+}
+
+function detailRows(rows, fmt, cls = "") {
+  const max = Math.max(1, ...rows.map(r => Math.abs(r.v)));
+  return `<div class="detail-list">${rows.map(r => `
+    <div class="detail-row">
+      <span class="detail-name">${esc(r.name)}</span>
+      <div class="detail-bar"><div class="detail-bar-fill ${cls}" style="width:${Math.abs(r.v) / max * 100}%"></div></div>
+      <span class="detail-val ${cls}">${fmt(r.v)}</span>
+    </div>`).join("")}</div>`;
+}
+
+function statDetailModal(kind) {
+  const today = todayStr();
+  const wStart = weekStartStr(today), wEnd = addDays(wStart, 7);
+  const mStart = `${monthKey(today)}-01`, mEnd = `${nextMonthKey(monthKey(today))}-01`;
+  let title = "", body = "";
+
+  if (kind === "tiempo") {
+    title = "Tiempo registrado";
+    const th = state.habits.filter(h => h.mode === "tiempo");
+    const rows = th.map(h => ({ name: h.title, v: h.totalMinutes || 0,
+      week: habitSumRange(h, wStart, wEnd), month: habitSumRange(h, mStart, mEnd) }))
+      .sort((a, b) => b.v - a.v);
+    const totWeek = rows.reduce((s, r) => s + r.week, 0), totMonth = rows.reduce((s, r) => s + r.month, 0);
+    body = rows.some(r => r.v > 0) ? `
+      <div class="detail-summary"><span>Esta semana: <strong>${fmtMin(totWeek)}</strong></span><span>Este mes: <strong>${fmtMin(totMonth)}</strong></span></div>
+      <p class="section-label">Total por hábito</p>
+      ${detailRows(rows, fmtMin, "blue")}
+      <p class="section-label">Semana y mes</p>
+      <div class="detail-list">${rows.map(r => `<div class="detail-row2"><span>${esc(r.name)}</span><span>sem ${fmtMin(r.week)} · mes ${fmtMin(r.month)}</span></div>`).join("")}</div>`
+      : `<p class="confirm-text">Aún no registraste tiempo en ningún hábito.</p>`;
+
+  } else if (kind === "monedas") {
+    title = "Monedas por fuente";
+    const bySrc = {};
+    for (const e of state.ledger) { if (e.coins) bySrc[e.src] = (bySrc[e.src] || 0) + e.coins; }
+    const earned = Object.entries(bySrc).filter(([, v]) => v > 0).map(([src, v]) => ({ name: ledgerSourceLabel(src), v })).sort((a, b) => b.v - a.v);
+    const spent = Object.entries(bySrc).filter(([, v]) => v < 0).map(([src, v]) => ({ name: ledgerSourceLabel(src), v })).sort((a, b) => a.v - b.v);
+    body = (earned.length || spent.length) ? `
+      ${earned.length ? `<p class="section-label">Ganadas</p>${detailRows(earned, v => "+" + v, "gold")}` : ""}
+      ${spent.length ? `<p class="section-label">Gastadas</p>${detailRows(spent, v => "" + v, "red")}` : ""}`
+      : `<p class="confirm-text">El registro de monedas por fuente empezó ahora. A medida que ganes y gastes, vas a ver acá de dónde salió cada moneda.</p>`;
+
+  } else if (kind === "completados") {
+    title = "Actividades completadas";
+    const rows = state.habits.map(h => ({ name: h.title, v: Object.keys(h.log || {}).length })).filter(r => r.v > 0).sort((a, b) => b.v - a.v);
+    const todosDone = state.todos.filter(t => t.done).length;
+    const milesDone = state.goals.reduce((s, g) => s + g.milestones.filter(m => m.done).length, 0);
+    if (todosDone) rows.push({ name: "Tareas puntuales", v: todosDone });
+    if (milesDone) rows.push({ name: "Hitos de metas", v: milesDone });
+    rows.sort((a, b) => b.v - a.v);
+    body = rows.length ? detailRows(rows, v => `${v}×`, "violet") : `<p class="confirm-text">Todavía no completaste nada. ¡A empezar!</p>`;
+
+  } else if (kind === "rachas") {
+    title = "Rachas por hábito";
+    const rows = state.habits.map(h => ({ name: h.title, cur: h.streak || 0, best: h.best || 0 })).sort((a, b) => b.best - a.best);
+    body = rows.length ? `<div class="detail-list">${rows.map(r => `
+      <div class="detail-row2"><span>${esc(r.name)}</span><span class="gold">${ICONS.flame}ahora ${r.cur} · mejor ${r.best}</span></div>`).join("")}</div>`
+      : `<p class="confirm-text">Sin hábitos todavía.</p>`;
+  }
+
+  openModal(`
+    <div class="modal-inner">
+      <div class="modal-head"><h3>${title}</h3>
+        <button class="icon-btn" data-close aria-label="Cerrar">${ICONS.x}</button></div>
+      ${body}
+      <div class="modal-actions"><button class="btn btn-ghost" data-close>Cerrar</button></div>
+    </div>`);
+}
+
+/* ---------- Calendario mensual de rendimiento ---------- */
+let calMonth = null;
+function calendarHTML() {
+  if (!calMonth) calMonth = monthKey(todayStr());
+  const today = todayStr();
+  const firstDate = parseDateStr(`${calMonth}-01`);
+  const y = firstDate.getFullYear(), mo = firstDate.getMonth();
+  const daysInMonth = new Date(y, mo + 1, 0).getDate();
+  const startPad = (firstDate.getDay() + 6) % 7; // lunes primero
+  const monthLbl = firstDate.toLocaleDateString("es", { month: "long", year: "numeric" });
+  const canPrev = calMonth > monthKey(state.player.createdAt || today);
+  const canNext = calMonth < monthKey(today);
+
+  let cells = "";
+  for (let i = 0; i < startPad; i++) cells += `<span class="cal-cell pad"></span>`;
+  for (let d = 1; d <= daysInMonth; d++) {
+    const date = `${calMonth}-${String(d).padStart(2, "0")}`;
+    if (date > today || date < (state.player.createdAt || "0")) { cells += `<span class="cal-cell out">${d}</span>`; continue; }
+    let scheduled = 0, done = 0;
+    for (const h of state.habits) {
+      if ((h.createdAt || "") <= date && !h.flexible && habitActiveOn(h, date) && habitScheduledOn(h, date)) scheduled++;
+      if (h.log && h.log[date]) done++;
+    }
+    let lv = 0;
+    if (done > 0) { const ratio = done / Math.max(scheduled, done); lv = ratio >= 1 ? 4 : ratio > 0.66 ? 3 : ratio > 0.33 ? 2 : 1; }
+    cells += `<button class="cal-cell lv${lv} ${date === today ? "today" : ""}" data-act="day-detail" data-date="${date}" aria-label="${fmtShortDate(date)}: ${done} de ${scheduled} hábitos">${d}</button>`;
+  }
+  return `
+    <div class="chart-card">
+      <div class="cal-head">
+        <button class="icon-btn" data-act="cal-prev" ${canPrev ? "" : "disabled"} aria-label="Mes anterior">${ICONS.chevronL}</button>
+        <h3 style="margin:0">${cap(monthLbl)}</h3>
+        <button class="icon-btn" data-act="cal-next" ${canNext ? "" : "disabled"} aria-label="Mes siguiente">${ICONS.chevronR}</button>
+      </div>
+      <div class="cal-dow">${["L", "M", "X", "J", "V", "S", "D"].map(x => `<span>${x}</span>`).join("")}</div>
+      <div class="cal-grid">${cells}</div>
+      <p class="hint" style="text-align:center;margin:10px 0 0">Tocá un día para ver el detalle</p>
+    </div>`;
+}
+
+function dayDetail(date) {
+  const hechos = [];
+  for (const h of state.habits) {
+    if (h.log && h.log[date]) hechos.push(h.mode === "tiempo" ? `${esc(h.title)} — ${fmtMin(h.log[date])}` : esc(h.title));
+  }
+  const todosHechos = state.todos.filter(t => t.done && t.doneDate === date).map(t => `${esc(t.title)} (tarea)`);
+  const coins = state.ledger.filter(e => e.d === date).reduce((s, e) => s + e.coins, 0);
+  const xp = state.history[date] || 0;
+  const lista = [...hechos, ...todosHechos];
+  openModal(`
+    <div class="modal-inner">
+      <div class="modal-head"><h3>${cap(parseDateStr(date).toLocaleDateString("es", { weekday: "long", day: "numeric", month: "long" }))}</h3>
+        <button class="icon-btn" data-close aria-label="Cerrar">${ICONS.x}</button></div>
+      <div class="detail-summary">
+        <span>${ICONS.star}<strong>${xp}</strong> XP</span>
+        <span class="gold">${ICONS.coin}<strong>${coins >= 0 ? "+" : ""}${coins}</strong> monedas</span>
+      </div>
+      ${lista.length ? `<p class="section-label">Hecho ese día</p><div class="detail-list">${lista.map(x => `<div class="detail-row2"><span>${x}</span></div>`).join("")}</div>`
+        : `<p class="confirm-text">Ese día no registraste actividad.</p>`}
+      <div class="modal-actions"><button class="btn btn-ghost" data-close>Cerrar</button></div>
+    </div>`);
+}
+
 function renderPerfil() {
   const v = $("#view-perfil");
   const p = state.player;
@@ -1510,11 +1676,11 @@ function renderPerfil() {
     </div>
     <div class="stats-grid">
       <div class="stat-card"><div class="num">${p.level}</div><div class="lbl">Nivel</div></div>
-      <div class="stat-card"><div class="num">${p.totalCompleted}</div><div class="lbl">Completados</div></div>
-      <div class="stat-card"><div class="num">${bestStreak}</div><div class="lbl">Mejor racha</div></div>
+      <button class="stat-card tappable" data-act="stat" data-stat="completados"><div class="num">${p.totalCompleted}</div><div class="lbl">Completados ${ICONS.chevronR}</div></button>
+      <button class="stat-card tappable" data-act="stat" data-stat="rachas"><div class="num">${bestStreak}</div><div class="lbl">Mejor racha ${ICONS.chevronR}</div></button>
       <div class="stat-card"><div class="num">${p.rewardsBought}</div><div class="lbl">Recompensas</div></div>
-      <div class="stat-card"><div class="num">${fmtMin(totalMin)}</div><div class="lbl">Tiempo registrado</div></div>
-      <div class="stat-card"><div class="num">${p.coinsEarned}</div><div class="lbl">Monedas ganadas</div></div>
+      <button class="stat-card tappable" data-act="stat" data-stat="tiempo"><div class="num">${fmtMin(totalMin)}</div><div class="lbl">Tiempo registrado ${ICONS.chevronR}</div></button>
+      <button class="stat-card tappable" data-act="stat" data-stat="monedas"><div class="num">${p.coinsEarned}</div><div class="lbl">Monedas ganadas ${ICONS.chevronR}</div></button>
     </div>
     <div class="chart-card">
       <h3>XP ganado — últimos 7 días</h3>
@@ -1527,6 +1693,7 @@ function renderPerfil() {
           </div>`).join("")}
       </div>
     </div>
+    ${calendarHTML()}
     ${heatmapHTML()}
     ${badgesHTML()}
     ${state.habits.length ? `
@@ -2203,6 +2370,10 @@ document.addEventListener("click", (e) => {
     "rename": () => nameForm(),
     "rest": () => restForm(),
     "sync": () => syncForm(),
+    "stat": () => statDetailModal(btn.dataset.stat),
+    "day-detail": () => dayDetail(btn.dataset.date),
+    "cal-prev": () => { calMonth = prevMonthKey(calMonth || monthKey(todayStr())); renderAll(); },
+    "cal-next": () => { calMonth = nextMonthKey(calMonth || monthKey(todayStr())); renderAll(); },
     "export": () => exportData(),
     "import": () => $("#importFile").click(),
     "reset": () => resetAll(),
