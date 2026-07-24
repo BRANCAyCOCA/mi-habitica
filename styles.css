@@ -531,6 +531,15 @@ button.cal-cell:active { transform: scale(.9); }
 .cal-cell.lv4 { background: #7f9ee8; border-color: #7f9ee8; color: #10121a; }
 .cal-cell.today { outline: 2px solid var(--gold); outline-offset: 1px; }
 
+/* Barra de gastos en la Tienda */
+.spend-strip { width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 10px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 11px 14px; margin-bottom: 14px; color: var(--text-dim); font-size: 14px; font-weight: 700; cursor: pointer; transition: transform .12s ease, border-color .15s ease; }
+.spend-strip:active { transform: scale(.99); }
+.spend-strip:hover { border-color: var(--border-strong, var(--gold)); }
+.spend-strip strong { color: var(--gold); }
+.spend-strip svg { width: 15px; height: 15px; vertical-align: -3px; margin-right: 4px; color: var(--gold); }
+.spend-strip .spend-more { color: var(--text-faint); font-size: 13px; white-space: nowrap; }
+.spend-strip .spend-more svg { color: var(--text-faint); width: 13px; height: 13px; margin: 0 0 0 2px; }
+
 .chart-card {
   background: var(--surface);
   border: 1px solid var(--border);

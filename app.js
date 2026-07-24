@@ -1419,6 +1419,33 @@ function toggleMilestone(goalId, mid) {
 }
 
 /* ---------- Render: Tienda ---------- */
+// Detalle de gastos en la tienda: en qué, cuándo y cuánto
+function gastosModal() {
+  const spends = state.ledger.filter(e => e.coins < 0).slice().reverse(); // más reciente primero
+  const mStart = `${monthKey(todayStr())}-01`;
+  const monthSpent = spends.filter(e => e.d >= mStart).reduce((s, e) => s - e.coins, 0);
+  const bySrc = {};
+  for (const e of spends) bySrc[e.src] = (bySrc[e.src] || 0) + (-e.coins);
+  const rows = Object.entries(bySrc).map(([src, v]) => ({ name: ledgerSourceLabel(src), v })).sort((a, b) => b.v - a.v);
+  const body = `
+    <div class="detail-summary">
+      <span>Total histórico: <strong>${state.player.coinsSpent || 0}</strong></span>
+      <span>Este mes: <strong>${monthSpent}</strong></span>
+    </div>
+    ${rows.length ? `<p class="section-label">En qué gastaste</p>${detailRows(rows, v => "−" + v, "red")}` : ""}
+    ${spends.length ? `<p class="section-label">Historial (más reciente primero)</p>
+      <div class="detail-list">${spends.slice(0, 50).map(e => `
+        <div class="detail-row2"><span>${esc(ledgerSourceLabel(e.src))}</span><span class="red">−${-e.coins} · ${fmtShortDate(e.d)}</span></div>`).join("")}</div>`
+      : `<p class="confirm-text">Todavía no registraste compras. Cuando canjees recompensas o compres descanso, vas a ver acá <strong>en qué, cuándo y cuánto</strong> gastaste.</p>`}`;
+  openModal(`
+    <div class="modal-inner">
+      <div class="modal-head"><h3>Mis gastos</h3>
+        <button class="icon-btn" data-close aria-label="Cerrar">${ICONS.x}</button></div>
+      ${body}
+      <div class="modal-actions"><button class="btn btn-ghost" data-close>Cerrar</button></div>
+    </div>`);
+}
+
 function renderTienda() {
   const v = $("#view-tienda");
   const p = state.player;
@@ -1427,6 +1454,10 @@ function renderTienda() {
       <div><h2>Tienda</h2><p class="sub">Canjea tus monedas por gustos reales</p></div>
       <button class="btn btn-primary btn-sm" data-act="new-reward">${ICONS.plus}Nueva</button>
     </div>
+    <button class="spend-strip" data-act="gastos">
+      <span>${ICONS.coin}Gastaste <strong>${p.coinsSpent || 0}</strong> monedas en total</span>
+      <span class="spend-more">Ver en qué ${ICONS.chevronR}</span>
+    </button>
     ${state.rewards.length === 0 ? `
       <div class="empty">${ICONS.gift}
         <p>La tienda está vacía</p>
@@ -2371,6 +2402,7 @@ document.addEventListener("click", (e) => {
     "rest": () => restForm(),
     "sync": () => syncForm(),
     "stat": () => statDetailModal(btn.dataset.stat),
+    "gastos": () => gastosModal(),
     "day-detail": () => dayDetail(btn.dataset.date),
     "cal-prev": () => { calMonth = prevMonthKey(calMonth || monthKey(todayStr())); renderAll(); },
     "cal-next": () => { calMonth = nextMonthKey(calMonth || monthKey(todayStr())); renderAll(); },
