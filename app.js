@@ -90,6 +90,7 @@ const ICONS = {
   history: I('<path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/>'),
   chevronL: I('<path d="m15 18-6-6 6-6"/>'),
   chevronR: I('<path d="m9 18 6-6-6-6"/>'),
+  dumbbell: I('<path d="m6.5 6.5 11 11"/><path d="m21 21-1-1"/><path d="m3 3 1 1"/><path d="m18 22 4-4"/><path d="m2 6 4-4"/><path d="m3 10 7-7"/><path d="m14 21 7-7"/>'),
 };
 
 /* ---------- Utilidades ---------- */
@@ -172,8 +173,9 @@ function mkHabit(o) {
     goalW: 0, goalWMin: 0, goalM: 0, goalMMin: 0, bonus: null, penalty: null,
     streak: 0, best: 0, completedToday: false, todayMinutes: 0, todayLogs: [],
     totalMinutes: 0, log: {}, createdAt: todayStr(),
-    trackSubject: false,  // estudio: pide "¿de qué materia?" al registrar
-    sessions: [],         // detalle por sesión: {id, d, min?, subject?, exercises?, note?}
+    trackSubject: false,   // estudio: pide "¿de qué materia?" al registrar
+    trackExercises: false, // gimnasio: permite anotar ejercicios (series/reps/peso)
+    sessions: [],          // detalle por sesión: {id, d, min?, subject?, exercises?, note?}
     ...o,
   };
 }
@@ -194,7 +196,7 @@ function defaultState() {
     habits: [
       mkHabit({ title: "Estudiar", notes: "1 a 2 h por día · mínimo 30 min", days: [1, 2, 3, 4, 5], mode: "tiempo", payout: 10, goalW: 450, goalWMin: 150, bonus: 25, penalty: 15, trackSubject: true }),
       mkHabit({ title: "Meditar", notes: "10 min al día · mínimo 5", difficulty: "facil", mode: "tiempo", payout: 18, defaultMin: 10, goalW: 70, goalWMin: 35, bonus: 10, penalty: 5 }),
-      mkHabit({ title: "Ir al gimnasio", notes: "Mínimo 3 por semana · 5 = excelente", difficulty: "dificil", flexible: true, payout: 12, goalW: 5, goalWMin: 3, bonus: 30, penalty: 20 }),
+      mkHabit({ title: "Ir al gimnasio", notes: "Mínimo 3 por semana · 5 = excelente", difficulty: "dificil", flexible: true, payout: 12, goalW: 5, goalWMin: 3, bonus: 30, penalty: 20, trackExercises: true }),
       mkHabit({ title: "Clase de Renta Fija", notes: "Lunes · 16 clases · 4 faltas permitidas (75%)", days: [1], payout: 10, goalM: 4, goalMMin: 3, bonus: 10, penalty: 15, startDate: "2026-08-03", endDate: "2026-11-30",
         dates: ["2026-08-03","2026-08-10","2026-08-22","2026-08-24","2026-08-31","2026-09-07","2026-09-14","2026-09-21","2026-09-28","2026-10-05","2026-10-19","2026-10-26","2026-11-02","2026-11-09","2026-11-16","2026-11-30"] }),
       mkHabit({ title: "Clase de Riesgo Crediticio", notes: "Martes · 18 clases · 4 faltas permitidas (75%)", days: [2], payout: 10, goalM: 4, goalMMin: 3, bonus: 10, penalty: 15, startDate: "2026-08-04", endDate: "2026-11-24",
@@ -229,6 +231,7 @@ function defaultState() {
       { id: uid(), title: "Compra caprichosa", cost: 200, timesBought: 0 },
     ],
     subjects: ["Renta Fija", "Riesgo Crediticio", "Microeconomía", "Derivados I"],  // materias para etiquetar el estudio
+    exercises: [],  // lista canónica de nombres de ejercicios (autocompletado; la puede depurar una IA)
     history: {},  // {fecha: xp ganado}
     ledger: [],   // [{d:fecha, src:"habit:<id>"|"todo"|"milestone"|"goal"|"boss"|"achievement"|"weekly"|"monthly"|"penalty"|"reward:<id>"|"rest", xp, coins}] — coins + gana, − gasta/deshace
     achievements: {},  // {id: fecha en que se logró}
@@ -275,9 +278,11 @@ function normalizeState(st) {
     h.dates = Array.isArray(h.dates) && h.dates.length ? h.dates : null;
     h.defaultMin = (Number.isFinite(Number(h.defaultMin)) && h.defaultMin >= 1) ? Math.round(h.defaultMin) : 30;
     h.trackSubject = !!h.trackSubject;
+    h.trackExercises = !!h.trackExercises;
     h.sessions = Array.isArray(h.sessions) ? h.sessions : [];
   }
   st.subjects = Array.isArray(st.subjects) && st.subjects.length ? st.subjects : ["Renta Fija", "Riesgo Crediticio", "Microeconomía", "Derivados I"];
+  st.exercises = Array.isArray(st.exercises) ? st.exercises : [];
   st.bosses = Array.isArray(st.bosses) ? st.bosses : [];
   for (const b of st.bosses) {
     b.habitIds = Array.isArray(b.habitIds) ? b.habitIds : [];
@@ -845,6 +850,7 @@ function renderHabitos() {
           <span class="streak">${ICONS.flame}${h.streak} racha${streakMult(h.streak) > 1 ? ` ×${streakMult(h.streak).toFixed(1)}` : ""}</span>
           <span class="payout" aria-label="Paga ${habitPayout(h)} monedas${isTime ? " por hora" : ""}">${ICONS.coin}+${habitPayout(h)}${isTime ? "/h" : ""}</span>
           ${isTime && h.todayMinutes ? `<span class="mins">${ICONS.clock}${fmtMin(h.todayMinutes)} hoy</span>` : ""}
+          ${h.trackExercises && gymSession(h, today)?.exercises.length ? `<span class="mins">${ICONS.dumbbell}${gymSession(h, today).exercises.length} ejerc. hoy</span>` : ""}
           ${goalChip(wSum, h.goalW, h.goalWMin, "sem")}
           ${goalChip(mSum, h.goalM, h.goalMMin, "mes")}
           ${h.flexible ? `<span class="due" title="Sin exigencia diaria: mandan sus metas">flexible</span>` : ""}
@@ -855,6 +861,7 @@ function renderHabitos() {
           ${WEEK.map(w => `<span class="day-pill ${h.days.includes(w.dow) ? "on" : ""}">${w.l}</span>`).join("")}
         </div>
       </div>
+      ${h.trackExercises && !sleeping ? `<button class="icon-btn" data-act="exercises" data-id="${h.id}" aria-label="Anotar ejercicios de ${esc(h.title)}">${ICONS.dumbbell}</button>` : ""}
       ${canBackfill ? `<button class="icon-btn" data-act="backfill" data-id="${h.id}" aria-label="Completar día pasado de ${esc(h.title)}">${ICONS.history}</button>` : ""}
       <button class="icon-btn" data-act="edit-habit" data-id="${h.id}" aria-label="Editar ${esc(h.title)}">${ICONS.pencil}</button>
     </div>`;
@@ -1213,6 +1220,82 @@ function timeLogForm(h) {
   $("#btnUndoLog", modal)?.addEventListener("click", () => {
     modal.close();
     undoTimeLog(h.id);
+  });
+}
+
+/* ---------- Ejercicios de gimnasio (series/reps/peso) ---------- */
+function fmtExercise(e) {
+  const sr = e.sets != null && e.reps != null ? `${e.sets}×${e.reps}`
+    : e.sets != null ? `${e.sets} ser` : e.reps != null ? `${e.reps} reps` : "";
+  const w = e.weight != null ? ` ${e.weight}kg` : "";
+  return `${e.name}${sr ? ` ${sr}` : ""}${w}`;
+}
+function gymSession(h, date) {
+  return (h.sessions || []).find(x => x.d === date && Array.isArray(x.exercises)) || null;
+}
+
+// Guarda (o actualiza) los ejercicios de un día; si el día no estaba marcado, lo completa
+function saveExercises(h, date, exercises) {
+  const wasDone = !!(h.log && h.log[date]);
+  let s = gymSession(h, date);
+  if (s) s.exercises = exercises;
+  else if (exercises.length) h.sessions.push({ id: uid(), d: date, exercises });
+  for (const e of exercises) if (e.name && !state.exercises.includes(e.name)) state.exercises.push(e.name);
+  if (!wasDone && exercises.length) {
+    // marcar el día como hecho (da monedas/racha) por la vía normal
+    if (date === todayStr()) toggleHabit(h.id);
+    else completePast(h, date);
+  } else {
+    save(); renderAll();
+  }
+  toast("Ejercicios guardados", "info", ICONS.dumbbell);
+}
+
+function exerciseForm(h, date = todayStr()) {
+  if (!h) return;
+  const sess = gymSession(h, date);
+  const exs = sess ? sess.exercises.slice() : [];
+  const numVal = v => { const n = Number(v); return String(v).trim() !== "" && Number.isFinite(n) && n >= 0 ? n : null; };
+  const row = (e = {}) => `
+    <div class="ex-row">
+      <input type="text" class="ex-name" list="exNames" value="${esc(e.name ?? "")}" placeholder="Ejercicio" autocomplete="off" autocapitalize="words">
+      <input type="number" class="ex-sets" value="${e.sets ?? ""}" placeholder="ser" min="0" inputmode="numeric">
+      <input type="number" class="ex-reps" value="${e.reps ?? ""}" placeholder="reps" min="0" inputmode="numeric">
+      <input type="number" class="ex-weight" value="${e.weight ?? ""}" placeholder="kg" min="0" step="any" inputmode="decimal">
+      <button type="button" class="icon-btn" data-removeex aria-label="Quitar ejercicio">${ICONS.x}</button>
+    </div>`;
+  openModal(`
+    <div class="modal-inner">
+      <div class="modal-head"><h3>Ejercicios · ${cap(parseDateStr(date).toLocaleDateString("es", { weekday: "short", day: "numeric", month: "short" }))}</h3>
+        <button class="icon-btn" data-close aria-label="Cerrar">${ICONS.x}</button></div>
+      <p class="confirm-text">Anotá qué hiciste. Podés dejar campos en blanco. (Opcional: solo marcar que fuiste alcanza.)</p>
+      <datalist id="exNames">${(state.exercises || []).map(n => `<option value="${esc(n)}"></option>`).join("")}</datalist>
+      <div class="ex-head"><span>Ejercicio</span><span>Ser</span><span>Reps</span><span>Kg</span><span></span></div>
+      <div id="exList">${(exs.length ? exs : [{}]).map(row).join("")}</div>
+      <button type="button" class="btn btn-ghost btn-sm" id="btnAddEx" style="margin-top:8px">${ICONS.plus}Agregar ejercicio</button>
+      <div class="modal-actions">
+        <button class="btn btn-ghost" data-close>Cancelar</button>
+        <button class="btn btn-primary" id="btnSaveEx">Guardar</button>
+      </div>
+    </div>`);
+  const list = $("#exList", modal);
+  $("#btnAddEx", modal).addEventListener("click", () => {
+    list.insertAdjacentHTML("beforeend", row());
+    list.lastElementChild.querySelector(".ex-name").focus();
+  });
+  list.addEventListener("click", e => {
+    const b = e.target.closest("[data-removeex]");
+    if (b) b.closest(".ex-row").remove();
+  });
+  $("#btnSaveEx", modal).addEventListener("click", () => {
+    const exercises = $$(".ex-row", list).map(r => ({
+      name: r.querySelector(".ex-name").value.trim(),
+      sets: numVal(r.querySelector(".ex-sets").value),
+      reps: numVal(r.querySelector(".ex-reps").value),
+      weight: numVal(r.querySelector(".ex-weight").value),
+    })).filter(e => e.name);
+    modal.close();
+    saveExercises(h, date, exercises);
   });
 }
 
@@ -1697,7 +1780,13 @@ function dayDetail(date) {
   const hechos = [];
   for (const h of state.habits) {
     if (!(h.log && h.log[date])) continue;
-    if (h.mode !== "tiempo") { hechos.push(esc(h.title)); continue; }
+    if (h.mode !== "tiempo") {
+      let line = esc(h.title);
+      const gs = h.trackExercises ? gymSession(h, date) : null;
+      if (gs && gs.exercises.length) line += ` <span class="day-subj">· ${gs.exercises.map(fmtExercise).map(esc).join(", ")}</span>`;
+      hechos.push(line);
+      continue;
+    }
     let line = `${esc(h.title)} — ${fmtMin(h.log[date])}`;
     if (h.trackSubject) {
       const bySubj = {};
@@ -2422,6 +2511,7 @@ document.addEventListener("click", (e) => {
   const actions = {
     "toggle-habit": () => toggleHabit(id),
     "log-time": () => timeLogForm(state.habits.find(x => x.id === id)),
+    "exercises": () => exerciseForm(state.habits.find(x => x.id === id)),
     "backfill": () => backfillForm(state.habits.find(x => x.id === id)),
     "edit-habit": () => habitForm(state.habits.find(x => x.id === id)),
     "new-habit": () => habitForm(null),
