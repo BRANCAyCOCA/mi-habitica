@@ -171,7 +171,10 @@ function mkHabit(o) {
     dates: null, // si es un array de "YYYY-MM-DD", el hábito solo aplica esas fechas exactas (materias)
     goalW: 0, goalWMin: 0, goalM: 0, goalMMin: 0, bonus: null, penalty: null,
     streak: 0, best: 0, completedToday: false, todayMinutes: 0, todayLogs: [],
-    totalMinutes: 0, log: {}, createdAt: todayStr(), ...o,
+    totalMinutes: 0, log: {}, createdAt: todayStr(),
+    trackSubject: false,  // estudio: pide "¿de qué materia?" al registrar
+    sessions: [],         // detalle por sesión: {id, d, min?, subject?, exercises?, note?}
+    ...o,
   };
 }
 function mkGoal(title, hitos) {
@@ -189,7 +192,7 @@ function defaultState() {
       createdAt: todayStr(),
     },
     habits: [
-      mkHabit({ title: "Estudiar", notes: "1 a 2 h por día · mínimo 30 min", days: [1, 2, 3, 4, 5], mode: "tiempo", payout: 10, goalW: 450, goalWMin: 150, bonus: 25, penalty: 15 }),
+      mkHabit({ title: "Estudiar", notes: "1 a 2 h por día · mínimo 30 min", days: [1, 2, 3, 4, 5], mode: "tiempo", payout: 10, goalW: 450, goalWMin: 150, bonus: 25, penalty: 15, trackSubject: true }),
       mkHabit({ title: "Meditar", notes: "10 min al día · mínimo 5", difficulty: "facil", mode: "tiempo", payout: 18, defaultMin: 10, goalW: 70, goalWMin: 35, bonus: 10, penalty: 5 }),
       mkHabit({ title: "Ir al gimnasio", notes: "Mínimo 3 por semana · 5 = excelente", difficulty: "dificil", flexible: true, payout: 12, goalW: 5, goalWMin: 3, bonus: 30, penalty: 20 }),
       mkHabit({ title: "Clase de Renta Fija", notes: "Lunes · 16 clases · 4 faltas permitidas (75%)", days: [1], payout: 10, goalM: 4, goalMMin: 3, bonus: 10, penalty: 15, startDate: "2026-08-03", endDate: "2026-11-30",
@@ -225,6 +228,7 @@ function defaultState() {
       { id: uid(), title: "Salida con amigos", cost: 80, timesBought: 0 },
       { id: uid(), title: "Compra caprichosa", cost: 200, timesBought: 0 },
     ],
+    subjects: ["Renta Fija", "Riesgo Crediticio", "Microeconomía", "Derivados I"],  // materias para etiquetar el estudio
     history: {},  // {fecha: xp ganado}
     ledger: [],   // [{d:fecha, src:"habit:<id>"|"todo"|"milestone"|"goal"|"boss"|"achievement"|"weekly"|"monthly"|"penalty"|"reward:<id>"|"rest", xp, coins}] — coins + gana, − gasta/deshace
     achievements: {},  // {id: fecha en que se logró}
@@ -270,7 +274,10 @@ function normalizeState(st) {
     h.endDate = h.endDate || null;
     h.dates = Array.isArray(h.dates) && h.dates.length ? h.dates : null;
     h.defaultMin = (Number.isFinite(Number(h.defaultMin)) && h.defaultMin >= 1) ? Math.round(h.defaultMin) : 30;
+    h.trackSubject = !!h.trackSubject;
+    h.sessions = Array.isArray(h.sessions) ? h.sessions : [];
   }
+  st.subjects = Array.isArray(st.subjects) && st.subjects.length ? st.subjects : ["Renta Fija", "Riesgo Crediticio", "Microeconomía", "Derivados I"];
   st.bosses = Array.isArray(st.bosses) ? st.bosses : [];
   for (const b of st.bosses) {
     b.habitIds = Array.isArray(b.habitIds) ? b.habitIds : [];
@@ -985,7 +992,7 @@ function toggleHabit(id) {
 }
 
 /* ---------- Hábitos por tiempo ---------- */
-function logTime(id, minutes) {
+function logTime(id, minutes, subject) {
   const h = state.habits.find(x => x.id === id);
   if (!h || h.mode !== "tiempo") return;
   const min = clamp(Math.round(Number(minutes)), 1, 24 * 60);
@@ -1003,8 +1010,10 @@ function logTime(id, minutes) {
   h.todayMinutes = (h.todayMinutes || 0) + min;
   h.totalMinutes = (h.totalMinutes || 0) + min;
   h.log[todayStr()] = h.todayMinutes;
-  h.todayLogs.push({ min, xp, coins, streakInc });
-  grant(xp, coins, `${fmtMin(h.todayMinutes)} hoy${m > 1 ? ` ×${m.toFixed(1)}` : ""}`, `habit:${h.id}`);
+  const sid = uid();
+  h.todayLogs.push({ min, xp, coins, streakInc, sid });
+  h.sessions.push({ id: sid, d: todayStr(), min, subject: subject || null });
+  grant(xp, coins, `${fmtMin(h.todayMinutes)} hoy${m > 1 ? ` ×${m.toFixed(1)}` : ""}${subject ? ` · ${subject}` : ""}`, `habit:${h.id}`);
   damageBosses(h.id, xp);
   checkAchievements();
   save();
@@ -1021,7 +1030,7 @@ function refundMissedDamage(h, date) {
 }
 
 // Registra minutos en un día pasado (hábitos por tiempo)
-function logTimePast(h, minutes, date) {
+function logTimePast(h, minutes, date, subject) {
   const min = clamp(Math.round(Number(minutes)), 1, 24 * 60);
   const first = !(h.log && h.log[date]);
   const m = streakMult(h.streak);
@@ -1029,6 +1038,7 @@ function logTimePast(h, minutes, date) {
   const xp = Math.max(1, Math.round(rewardFor(REWARD_HABIT, h.difficulty).xp * min / 60));
   h.log[date] = (h.log[date] || 0) + min;
   h.totalMinutes = (h.totalMinutes || 0) + min;
+  h.sessions.push({ id: uid(), d: date, min, subject: subject || null });
   if (first) {
     state.player.totalCompleted++;
     refundMissedDamage(h, date);
@@ -1106,6 +1116,11 @@ function undoTimeLog(id) {
   const log = h.todayLogs.pop();
   h.todayMinutes = Math.max(0, h.todayMinutes - log.min);
   h.totalMinutes = Math.max(0, h.totalMinutes - log.min);
+  // quitar la sesión de detalle correspondiente (por id, o la última de hoy)
+  const si = log.sid ? h.sessions.findIndex(s => s.id === log.sid)
+    : [...h.sessions].reverse().findIndex(s => s.d === todayStr());
+  if (log.sid) { if (si >= 0) h.sessions.splice(si, 1); }
+  else { const idx = h.sessions.map(s => s.d).lastIndexOf(todayStr()); if (idx >= 0) h.sessions.splice(idx, 1); }
   if (h.todayMinutes > 0) h.log[todayStr()] = h.todayMinutes;
   else delete h.log[todayStr()];
   if (log.streakInc) h.streak = Math.max(0, h.streak - 1);
@@ -1152,6 +1167,13 @@ function timeLogForm(h) {
         <div class="err">Ingresa los minutos (mínimo 1).</div>
         <div class="hint" id="minHint"></div>
       </div>
+      ${h.trackSubject && state.subjects.length ? `
+      <div class="field">
+        <label>¿De qué materia?</label>
+        <div class="seg wrap" data-seg="subj">
+          ${state.subjects.map((s, i) => `<button type="button" data-val="${esc(s)}" class="${i === 0 ? "on" : ""}">${esc(s)}</button>`).join("")}
+        </div>
+      </div>` : ""}
       <div class="modal-actions">
         ${h.todayLogs?.length ? `<button class="btn btn-ghost" id="btnUndoLog">Deshacer último</button>` : ""}
         <button class="btn btn-primary" id="btnLog">${ICONS.clock}Registrar</button>
@@ -1181,9 +1203,10 @@ function timeLogForm(h) {
     const m = Math.round(Number(inp.value));
     if (!Number.isFinite(m) || m < 1) { $("#f-min", modal).classList.add("has-err"); inp.focus(); return; }
     const day = segValue(modal, "qday") || today;
+    const subject = h.trackSubject ? (segValue(modal, "subj") || null) : null;
     modal.close();
-    if (day === today) logTime(h.id, m);
-    else logTimePast(h, m, day);
+    if (day === today) logTime(h.id, m, subject);
+    else logTimePast(h, m, day, subject);
   });
   $("#btnUndoLog", modal)?.addEventListener("click", () => {
     modal.close();
@@ -1577,8 +1600,13 @@ function statDetailModal(kind) {
       week: habitSumRange(h, wStart, wEnd), month: habitSumRange(h, mStart, mEnd) }))
       .sort((a, b) => b.v - a.v);
     const totWeek = rows.reduce((s, r) => s + r.week, 0), totMonth = rows.reduce((s, r) => s + r.month, 0);
+    // Tiempo por materia (de los hábitos que etiquetan materia)
+    const subjTotals = {};
+    for (const h of state.habits) if (h.trackSubject) for (const s of h.sessions) if (s.subject) subjTotals[s.subject] = (subjTotals[s.subject] || 0) + (s.min || 0);
+    const subjRows = Object.entries(subjTotals).map(([name, v]) => ({ name, v })).sort((a, b) => b.v - a.v);
     body = rows.some(r => r.v > 0) ? `
       <div class="detail-summary"><span>Esta semana: <strong>${fmtMin(totWeek)}</strong></span><span>Este mes: <strong>${fmtMin(totMonth)}</strong></span></div>
+      ${subjRows.length ? `<p class="section-label">Tiempo por materia</p>${detailRows(subjRows, fmtMin, "violet")}` : ""}
       <p class="section-label">Total por hábito</p>
       ${detailRows(rows, fmtMin, "blue")}
       <p class="section-label">Semana y mes</p>
@@ -1666,7 +1694,16 @@ function calendarHTML() {
 function dayDetail(date) {
   const hechos = [];
   for (const h of state.habits) {
-    if (h.log && h.log[date]) hechos.push(h.mode === "tiempo" ? `${esc(h.title)} — ${fmtMin(h.log[date])}` : esc(h.title));
+    if (!(h.log && h.log[date])) continue;
+    if (h.mode !== "tiempo") { hechos.push(esc(h.title)); continue; }
+    let line = `${esc(h.title)} — ${fmtMin(h.log[date])}`;
+    if (h.trackSubject) {
+      const bySubj = {};
+      for (const s of h.sessions) if (s.d === date && s.subject) bySubj[s.subject] = (bySubj[s.subject] || 0) + (s.min || 0);
+      const parts = Object.entries(bySubj).map(([k, v]) => `${esc(k)} ${fmtMin(v)}`);
+      if (parts.length) line += ` <span class="day-subj">· ${parts.join(", ")}</span>`;
+    }
+    hechos.push(line);
   }
   const todosHechos = state.todos.filter(t => t.done && t.doneDate === date).map(t => `${esc(t.title)} (tarea)`);
   const coins = state.ledger.filter(e => e.d === date).reduce((s, e) => s + e.coins, 0);
