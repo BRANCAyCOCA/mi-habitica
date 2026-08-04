@@ -1169,10 +1169,12 @@ function timeLogForm(h) {
       </div>
       ${h.trackSubject && state.subjects.length ? `
       <div class="field">
-        <label>¿De qué materia?</label>
+        <label>¿De qué materia? <span style="color:var(--text-faint);font-weight:600">(opcional)</span></label>
         <div class="seg wrap" data-seg="subj">
-          ${state.subjects.map((s, i) => `<button type="button" data-val="${esc(s)}" class="${i === 0 ? "on" : ""}">${esc(s)}</button>`).join("")}
+          <button type="button" data-val="" class="on">General</button>
+          ${state.subjects.map(s => `<button type="button" data-val="${esc(s)}">${esc(s)}</button>`).join("")}
         </div>
+        <div class="hint">Dejalo en <strong>General</strong> si estudiaste algo fuera de la facultad (un libro, un curso…).</div>
       </div>` : ""}
       <div class="modal-actions">
         ${h.todayLogs?.length ? `<button class="btn btn-ghost" id="btnUndoLog">Deshacer último</button>` : ""}
@@ -1602,7 +1604,7 @@ function statDetailModal(kind) {
     const totWeek = rows.reduce((s, r) => s + r.week, 0), totMonth = rows.reduce((s, r) => s + r.month, 0);
     // Tiempo por materia (de los hábitos que etiquetan materia)
     const subjTotals = {};
-    for (const h of state.habits) if (h.trackSubject) for (const s of h.sessions) if (s.subject) subjTotals[s.subject] = (subjTotals[s.subject] || 0) + (s.min || 0);
+    for (const h of state.habits) if (h.trackSubject) for (const s of h.sessions) { const k = s.subject || "General"; subjTotals[k] = (subjTotals[k] || 0) + (s.min || 0); }
     const subjRows = Object.entries(subjTotals).map(([name, v]) => ({ name, v })).sort((a, b) => b.v - a.v);
     body = rows.some(r => r.v > 0) ? `
       <div class="detail-summary"><span>Esta semana: <strong>${fmtMin(totWeek)}</strong></span><span>Este mes: <strong>${fmtMin(totMonth)}</strong></span></div>
