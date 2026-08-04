@@ -2684,5 +2684,22 @@ else maybeShowWeeklyReview();
 if (syncReady()) syncPull({ announce: false });
 
 if ("serviceWorker" in navigator) {
-  window.addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => {}));
+  // Auto-actualización: cuando un service worker nuevo toma el control, recargar una vez
+  let swRefreshing = false;
+  navigator.serviceWorker.addEventListener("controllerchange", () => {
+    if (swRefreshing) return;
+    swRefreshing = true;
+    location.reload();
+  });
+  window.addEventListener("load", () => {
+    // updateViaCache:"none" → el navegador nunca sirve el sw.js desde su caché HTTP,
+    // así detecta versiones nuevas apenas se publican.
+    navigator.serviceWorker.register("sw.js", { updateViaCache: "none" })
+      .then(reg => { reg.update(); })
+      .catch(() => {});
+  });
+  // Revisar si hay versión nueva cada vez que la app vuelve a primer plano
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden) navigator.serviceWorker.getRegistration().then(r => r && r.update()).catch(() => {});
+  });
 }
