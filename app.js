@@ -284,6 +284,15 @@ function normalizeState(st) {
   }
   st.subjects = Array.isArray(st.subjects) && st.subjects.length ? st.subjects : ["Renta Fija", "Riesgo Crediticio", "Microeconomía", "Derivados I"];
   st.exercises = Array.isArray(st.exercises) ? st.exercises : [];
+  // Migración única: hábitos creados antes de estas funciones no tenían las banderas.
+  // Activarlas en los hábitos precargados de estudio (por materia) y gimnasio (ejercicios).
+  if (!st.migratedFlags) {
+    for (const h of st.habits) {
+      if (h.mode === "tiempo" && /estudi/i.test(h.title)) h.trackSubject = true;
+      if (/gimnasio|gym/i.test(h.title)) h.trackExercises = true;
+    }
+    st.migratedFlags = true;
+  }
   st.bosses = Array.isArray(st.bosses) ? st.bosses : [];
   for (const b of st.bosses) {
     b.habitIds = Array.isArray(b.habitIds) ? b.habitIds : [];
