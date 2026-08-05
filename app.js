@@ -101,6 +101,7 @@ const esc = (s) => String(s ?? "").replace(/[&<>"']/g, c =>
   ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const clamp = (n, min, max) => Math.max(min, Math.min(max, n));
 const cap = (s) => s ? s.charAt(0).toUpperCase() + s.slice(1) : s;
+const numOrNull = (v) => { const n = Number(v); return v !== null && v !== undefined && String(v).trim() !== "" && Number.isFinite(n) && n >= 0 ? n : null; };
 
 function todayStr(d = new Date()) {
   const y = d.getFullYear(), m = String(d.getMonth() + 1).padStart(2, "0"), day = String(d.getDate()).padStart(2, "0");
@@ -2552,7 +2553,7 @@ document.addEventListener("change", (e) => {
 // Al volver a la app (ej. PWA reabierta al día siguiente), revisar el cambio de día
 // y traer lo último de la nube (por si lo cargaste desde el otro dispositivo)
 document.addEventListener("visibilitychange", () => {
-  if (!document.hidden) { runCron(); renderAll(); syncPull({ announce: true }); }
+  if (!document.hidden) { runCron(); renderAll(); syncPull({ announce: true }).then(() => drainInbox()); }
 });
 
 /* ---------- Sincronización en la nube (Supabase) ----------
@@ -2638,6 +2639,57 @@ async function syncPull({ announce = false } = {}) {
   } catch { setSyncStatus("error"); }
 }
 
+/* ---------- Buzón: sesiones que llegan desde afuera (GPT / Atajo) ----------
+   Otra herramienta INSERTA filas en la tabla `inbox` de Supabase; la app las
+   levanta al abrirse / al volver a foco y las agrega al historial. Formato:
+   estudio: { type:"study", date?:"YYYY-MM-DD", minutes:N, subject?:"..." }
+   gimnasio: { type:"gym", date?:"YYYY-MM-DD", exercises:[{name,sets,reps,weight}] } */
+function applyInboxPayload(p) {
+  if (!p || !p.type) return false;
+  const date = /^\d{4}-\d{2}-\d{2}$/.test(p.date || "") ? p.date : todayStr();
+  if (p.type === "study") {
+    const h = state.habits.find(x => x.trackSubject && x.mode === "tiempo") || state.habits.find(x => x.mode === "tiempo");
+    if (!h) return false;
+    const min = Math.round(Number(p.minutes));
+    if (!(min > 0)) return false;
+    const subject = p.subject ? String(p.subject).trim() : null;
+    if (subject && !state.subjects.includes(subject)) state.subjects.push(subject);
+    if (date === todayStr()) logTime(h.id, min, subject);
+    else logTimePast(h, min, date, subject);
+    return true;
+  }
+  if (p.type === "gym") {
+    const h = state.habits.find(x => x.trackExercises);
+    if (!h) return false;
+    const exercises = (Array.isArray(p.exercises) ? p.exercises : []).map(e => ({
+      name: String(e.name || "").trim(), sets: numOrNull(e.sets), reps: numOrNull(e.reps), weight: numOrNull(e.weight),
+    })).filter(e => e.name);
+    saveExercises(h, date, exercises);
+    return true;
+  }
+  return false;
+}
+
+async function drainInbox() {
+  if (!syncReady()) return;
+  try {
+    const q = `code=eq.${encodeURIComponent(syncCfg.code)}&processed=eq.false&select=id,payload&order=created_at.asc`;
+    const res = await fetch(`${syncCfg.url}/rest/v1/inbox?${q}`, { headers: syncHeaders() });
+    if (!res.ok) return;  // la tabla puede no existir todavía: silencioso
+    const rows = await res.json();
+    if (!rows.length) return;
+    let applied = 0;
+    for (const r of rows) {
+      let ok = false;
+      try { ok = applyInboxPayload(r.payload); } catch { ok = false; }
+      // borrar la fila (aplicada o inválida) para no reprocesarla
+      await fetch(`${syncCfg.url}/rest/v1/inbox?id=eq.${r.id}`, { method: "DELETE", headers: syncHeaders() }).catch(() => {});
+      if (ok) applied++;
+    }
+    if (applied) toast(`${applied} registro${applied > 1 ? "s" : ""} importado${applied > 1 ? "s" : ""} desde afuera`, "gain", ICONS.download);
+  } catch {}
+}
+
 function syncForm() {
   openModal(`
     <div class="modal-inner">
@@ -2681,7 +2733,7 @@ runCron();
 renderAll();
 if (!state.player.name) nameForm({ firstTime: true });
 else maybeShowWeeklyReview();
-if (syncReady()) syncPull({ announce: false });
+if (syncReady()) syncPull({ announce: false }).then(() => drainInbox());
 
 if ("serviceWorker" in navigator) {
   // Auto-actualización: cuando un service worker nuevo toma el control, recargar una vez
