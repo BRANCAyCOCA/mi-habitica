@@ -7,8 +7,9 @@
 /* ---------- Constantes del juego ---------- */
 const STORAGE_KEY = "mi-aventura-v1";
 const MAX_HP = 50;
-const XP_PER_LEVEL = 150;   // XP fijo por nivel (odómetro parejo; el nivel no da ventajas)
-const CLEAN_DAY_HEAL = 5;   // vida que recuperás al completar todo lo del día (días de semana)
+const XP_PER_LEVEL = 150;    // XP fijo por nivel (odómetro parejo; el nivel no da ventajas)
+const CLEAN_DAY_HEAL = 5;    // vida que recuperás al completar todo lo del día (días de semana)
+const DEATH_LEVEL_LOSS = 3;  // niveles que perdés si la vida llega a 0 (no perdés monedas)
 const DIFF = {
   facil:   { label: "Fácil",   mult: 1,   color: "#4ade80" },
   normal:  { label: "Normal",  mult: 1.5, color: "#facc15" },
@@ -383,7 +384,8 @@ function damage(n, reason) {
   toast(`−${n} HP${reason ? " · " + reason : ""}`, "hurt", ICONS.heart);
   if (p.hp <= 0) {
     p.deaths++;
-    p.hp = MAX_HP;   // se restaura la vida; sin perder monedas, nivel ni XP
+    p.level = Math.max(1, p.level - DEATH_LEVEL_LOSS);  // perdés niveles (progreso), pero NO monedas
+    p.hp = MAX_HP;
     showDeathModal();
   }
 }
@@ -520,8 +522,8 @@ function showDeathModal() {
     <div class="modal-inner celebrate">
       <div class="big-ico" style="color:var(--hp)">${ICONS.skull}</div>
       <h3>Te quedaste sin energía…</h3>
-      <p>Tu vida llegó a 0 y <strong>se restaura por completo</strong>. No perdés monedas ni nivel — es un llamado de atención para volver al ritmo.</p>
-      <p class="gold-line">Todo héroe se recupera. ¡A retomar!</p>
+      <p>Tu vida llegó a 0: <strong>bajás ${DEATH_LEVEL_LOSS} niveles</strong> (ahora sos nivel ${state.player.level}) y la vida se restaura. <strong>No perdés monedas.</strong></p>
+      <p class="gold-line">Perder progreso duele — usalo de impulso para no repetirlo.</p>
       <div class="modal-actions"><button class="btn btn-primary" data-close>Continuar</button></div>
     </div>`);
 }
@@ -640,8 +642,9 @@ function runCron() {
   if (leveled) events.push({ kind: "level", text: `¡Subiste al nivel ${p.level}!` });
   if (p.hp <= 0) {
     p.deaths++;
-    p.hp = MAX_HP;   // se restaura la vida; sin perder monedas, nivel ni XP
-    events.push({ kind: "death", text: "Tu vida llegó a 0: se restaura por completo, sin perder monedas ni nivel." });
+    p.level = Math.max(1, p.level - DEATH_LEVEL_LOSS);  // perdés niveles, pero NO monedas
+    p.hp = MAX_HP;
+    events.push({ kind: "death", text: `Tu vida llegó a 0: perdés ${DEATH_LEVEL_LOSS} niveles (bajás a nivel ${p.level}), pero conservás tus monedas. Vida restaurada.` });
   }
 
   // 5) Limpiar registros muy viejos (conservar ~13 meses)
