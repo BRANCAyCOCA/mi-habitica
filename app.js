@@ -2592,7 +2592,12 @@ document.addEventListener("change", (e) => {
 // Al volver a la app (ej. PWA reabierta al día siguiente), revisar el cambio de día
 // y traer lo último de la nube (por si lo cargaste desde el otro dispositivo)
 document.addEventListener("visibilitychange", () => {
-  if (!document.hidden) { runCron(); renderAll(); syncPull({ announce: true }).then(() => drainInbox()); }
+  if (!document.hidden) {
+    // igual que en el arranque: primero traer de la nube, después el cambio de día
+    const after = () => { runCron(); renderAll(); drainInbox(); };
+    if (syncReady()) syncPull({ announce: true }).then(after).catch(after);
+    else after();
+  }
 });
 
 /* ---------- Sincronización en la nube (Supabase) ----------
@@ -2768,11 +2773,19 @@ function syncForm() {
 }
 
 /* ---------- Arranque ---------- */
-runCron();
+// Importante: primero bajamos de la nube (si hay), y RECIÉN después corremos el
+// cambio de día. Si corriéramos el cron antes, guardaría y el estado local viejo
+// pisaría lo de la nube al sincronizar.
+function boot() {
+  runCron();
+  renderAll();
+  if (!state.player.name) nameForm({ firstTime: true });
+  else maybeShowWeeklyReview();
+  drainInbox();
+}
 renderAll();
-if (!state.player.name) nameForm({ firstTime: true });
-else maybeShowWeeklyReview();
-if (syncReady()) syncPull({ announce: false }).then(() => drainInbox());
+if (syncReady()) syncPull({ announce: false }).then(boot).catch(boot);
+else boot();
 
 if ("serviceWorker" in navigator) {
   // Auto-actualización: cuando un service worker nuevo toma el control, recargar una vez
