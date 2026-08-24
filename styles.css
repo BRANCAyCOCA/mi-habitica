@@ -530,6 +530,13 @@ button.cal-cell:active { transform: scale(.9); }
 .cal-cell.lv3 { background: #4f6fc9; border-color: #4f6fc9; color: #fff; }
 .cal-cell.lv4 { background: #7f9ee8; border-color: #7f9ee8; color: #10121a; }
 .cal-cell.today { outline: 2px solid var(--gold); outline-offset: 1px; }
+/* Modo gastos: rampa ámbar */
+.cal-cell.sp1 { background: #3a2f16; border-color: #3a2f16; color: #e8d5a8; }
+.cal-cell.sp2 { background: #6b5417; border-color: #6b5417; color: #fff; }
+.cal-cell.sp3 { background: #a07d1c; border-color: #a07d1c; color: #fff; }
+.cal-cell.sp4 { background: #d6a44a; border-color: #d6a44a; color: #241a06; }
+.seg.cal-mode { margin-bottom: 12px; }
+.seg.cal-mode button { min-height: 38px; font-size: 13px; }
 
 /* Barra de gastos en la Tienda */
 .spend-strip { width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 10px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 11px 14px; margin-bottom: 14px; color: var(--text-dim); font-size: 14px; font-weight: 700; cursor: pointer; transition: transform .12s ease, border-color .15s ease; }

@@ -1781,6 +1781,7 @@ function statDetailModal(kind) {
 
 /* ---------- Calendario mensual de rendimiento ---------- */
 let calMonth = null;
+let calMode = "done"; // "done" = constancia de hábitos · "spend" = gastos de monedas
 function calendarHTML() {
   if (!calMonth) calMonth = monthKey(todayStr());
   const today = todayStr();
@@ -1791,20 +1792,31 @@ function calendarHTML() {
   const monthLbl = firstDate.toLocaleDateString("es", { month: "long", year: "numeric" });
   const canPrev = calMonth > monthKey(state.player.createdAt || today);
   const canNext = calMonth < monthKey(today);
+  const spend = calMode === "spend";
 
-  let cells = "";
+  // Gasto por día (solo modo gastos)
+  const spentByDay = {};
+  if (spend) for (const e of state.ledger) if (e.coins < 0) spentByDay[e.d] = (spentByDay[e.d] || 0) + (-e.coins);
+
+  let cells = "", monthSpent = 0;
   for (let i = 0; i < startPad; i++) cells += `<span class="cal-cell pad"></span>`;
   for (let d = 1; d <= daysInMonth; d++) {
     const date = `${calMonth}-${String(d).padStart(2, "0")}`;
     if (date > today || date < (state.player.createdAt || "0")) { cells += `<span class="cal-cell out">${d}</span>`; continue; }
-    let scheduled = 0, done = 0;
-    for (const h of state.habits) {
-      if ((h.createdAt || "") <= date && !h.flexible && habitActiveOn(h, date) && habitScheduledOn(h, date)) scheduled++;
-      if (h.log && h.log[date]) done++;
+    if (spend) {
+      const amt = spentByDay[date] || 0; monthSpent += amt;
+      const lv = amt <= 0 ? 0 : amt >= 120 ? 4 : amt >= 60 ? 3 : amt >= 25 ? 2 : 1;
+      cells += `<button class="cal-cell sp${lv} ${date === today ? "today" : ""}" data-act="day-detail" data-date="${date}" aria-label="${fmtShortDate(date)}: gastaste ${amt} monedas">${d}</button>`;
+    } else {
+      let scheduled = 0, done = 0;
+      for (const h of state.habits) {
+        if ((h.createdAt || "") <= date && !h.flexible && habitActiveOn(h, date) && habitScheduledOn(h, date)) scheduled++;
+        if (h.log && h.log[date]) done++;
+      }
+      let lv = 0;
+      if (done > 0) { const ratio = done / Math.max(scheduled, done); lv = ratio >= 1 ? 4 : ratio > 0.66 ? 3 : ratio > 0.33 ? 2 : 1; }
+      cells += `<button class="cal-cell lv${lv} ${date === today ? "today" : ""}" data-act="day-detail" data-date="${date}" aria-label="${fmtShortDate(date)}: ${done} de ${scheduled} hábitos">${d}</button>`;
     }
-    let lv = 0;
-    if (done > 0) { const ratio = done / Math.max(scheduled, done); lv = ratio >= 1 ? 4 : ratio > 0.66 ? 3 : ratio > 0.33 ? 2 : 1; }
-    cells += `<button class="cal-cell lv${lv} ${date === today ? "today" : ""}" data-act="day-detail" data-date="${date}" aria-label="${fmtShortDate(date)}: ${done} de ${scheduled} hábitos">${d}</button>`;
   }
   return `
     <div class="chart-card">
@@ -1813,9 +1825,15 @@ function calendarHTML() {
         <h3 style="margin:0">${cap(monthLbl)}</h3>
         <button class="icon-btn" data-act="cal-next" ${canNext ? "" : "disabled"} aria-label="Mes siguiente">${ICONS.chevronR}</button>
       </div>
+      <div class="seg cal-mode">
+        <button type="button" class="${spend ? "" : "on"}" data-act="cal-mode" data-mode="done">Constancia</button>
+        <button type="button" class="${spend ? "on" : ""}" data-act="cal-mode" data-mode="spend">Gastos</button>
+      </div>
       <div class="cal-dow">${["L", "M", "X", "J", "V", "S", "D"].map(x => `<span>${x}</span>`).join("")}</div>
       <div class="cal-grid">${cells}</div>
-      <p class="hint" style="text-align:center;margin:10px 0 0">Tocá un día para ver el detalle</p>
+      <p class="hint" style="text-align:center;margin:10px 0 0">${spend
+        ? `Gastado este mes: <strong style="color:var(--gold)">${monthSpent}</strong> monedas · tocá un día`
+        : "Tocá un día para ver el detalle"}</p>
     </div>`;
 }
 
@@ -1840,7 +1858,10 @@ function dayDetail(date) {
     hechos.push(line);
   }
   const todosHechos = state.todos.filter(t => t.done && t.doneDate === date).map(t => `${esc(t.title)} (tarea)`);
-  const coins = state.ledger.filter(e => e.d === date).reduce((s, e) => s + e.coins, 0);
+  const entradas = state.ledger.filter(e => e.d === date);
+  const coins = entradas.reduce((s, e) => s + e.coins, 0);
+  const gastos = entradas.filter(e => e.coins < 0).map(e => ({ name: ledgerSourceLabel(e.src), amt: -e.coins }));
+  const gastadoDia = gastos.reduce((s, g) => s + g.amt, 0);
   const xp = state.history[date] || 0;
   const lista = [...hechos, ...todosHechos];
   openModal(`
@@ -1849,10 +1870,12 @@ function dayDetail(date) {
         <button class="icon-btn" data-close aria-label="Cerrar">${ICONS.x}</button></div>
       <div class="detail-summary">
         <span>${ICONS.star}<strong>${xp}</strong> XP</span>
-        <span class="gold">${ICONS.coin}<strong>${coins >= 0 ? "+" : ""}${coins}</strong> monedas</span>
+        <span class="gold">${ICONS.coin}<strong>${coins >= 0 ? "+" : ""}${coins}</strong> neto</span>
+        ${gastadoDia ? `<span class="red">${ICONS.gift}<strong>−${gastadoDia}</strong> gastado</span>` : ""}
       </div>
       ${lista.length ? `<p class="section-label">Hecho ese día</p><div class="detail-list">${lista.map(x => `<div class="detail-row2"><span>${x}</span></div>`).join("")}</div>`
         : `<p class="confirm-text">Ese día no registraste actividad.</p>`}
+      ${gastos.length ? `<p class="section-label">Gastado ese día</p><div class="detail-list">${gastos.map(g => `<div class="detail-row2"><span>${esc(g.name)}</span><span class="red">−${g.amt}</span></div>`).join("")}</div>` : ""}
       <div class="modal-actions"><button class="btn btn-ghost" data-close>Cerrar</button></div>
     </div>`);
 }
@@ -2578,6 +2601,7 @@ document.addEventListener("click", (e) => {
     "day-detail": () => dayDetail(btn.dataset.date),
     "cal-prev": () => { calMonth = prevMonthKey(calMonth || monthKey(todayStr())); renderAll(); },
     "cal-next": () => { calMonth = nextMonthKey(calMonth || monthKey(todayStr())); renderAll(); },
+    "cal-mode": () => { calMode = btn.dataset.mode; renderAll(); },
     "export": () => exportData(),
     "import": () => $("#importFile").click(),
     "reset": () => resetAll(),
