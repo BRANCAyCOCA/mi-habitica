@@ -7,6 +7,8 @@
 /* ---------- Constantes del juego ---------- */
 const STORAGE_KEY = "mi-aventura-v1";
 const MAX_HP = 50;
+const XP_PER_LEVEL = 150;   // XP fijo por nivel (odómetro parejo; el nivel no da ventajas)
+const CLEAN_DAY_HEAL = 5;   // vida que recuperás al completar todo lo del día (días de semana)
 const DIFF = {
   facil:   { label: "Fácil",   mult: 1,   color: "#4ade80" },
   normal:  { label: "Normal",  mult: 1.5, color: "#facc15" },
@@ -191,7 +193,7 @@ function defaultState() {
     player: {
       name: "", level: 1, xp: 0, hp: MAX_HP, coins: 0,
       totalCompleted: 0, coinsEarned: 0, coinsSpent: 0, rewardsBought: 0, deaths: 0,
-      weeklyBonuses: 0,
+      weeklyBonuses: 0, lastHealDay: null,
       createdAt: todayStr(),
     },
     habits: [
@@ -221,8 +223,9 @@ function defaultState() {
     ],
     // Jefes: enemigos con vida; el XP ganado con los hábitos enlazados les hace daño
     bosses: [],   // {id,title,maxHp,hp,habitIds:[] (vacío = todos),loot,done,createdAt,defeatedAt}
-    // {id,title,cost,timesBought} — precios pensados para ~160-200 monedas/semana
+    // {id,title,cost,timesBought,heal?} — heal: HP que restaura (poción). precios ~160-200 monedas/semana
     rewards: [
+      { id: uid(), title: "Poción de vida (+10)", cost: 60, heal: 10, timesBought: 0 },
       { id: uid(), title: "Salir de fiesta", cost: 150, timesBought: 0 },
       { id: uid(), title: "Comer chocolate", cost: 25, timesBought: 0 },
       { id: uid(), title: "1 partida con team", cost: 25, timesBought: 0 },
@@ -322,7 +325,7 @@ function persistRaw() {
 }
 
 /* ---------- Mecánicas del juego ---------- */
-function xpNeeded(level) { return 50 + (level - 1) * 25; }
+function xpNeeded(level) { return XP_PER_LEVEL; }
 
 function heroTitle(level) {
   for (const [min, t] of TITLES) if (level >= min) return t;
@@ -358,7 +361,6 @@ function grant(xp, coins, msg, src) {
   while (p.xp >= xpNeeded(p.level)) {
     p.xp -= xpNeeded(p.level);
     p.level++;
-    p.hp = MAX_HP;
     leveled = true;
   }
   toast(`+${xp} XP · +${coins} monedas${msg ? " · " + msg : ""}`, "gain", ICONS.star);
@@ -381,11 +383,30 @@ function damage(n, reason) {
   toast(`−${n} HP${reason ? " · " + reason : ""}`, "hurt", ICONS.heart);
   if (p.hp <= 0) {
     p.deaths++;
-    p.level = Math.max(1, p.level - 1);
-    p.xp = 0;
-    p.coins = 0;
-    p.hp = MAX_HP;
+    p.hp = MAX_HP;   // se restaura la vida; sin perder monedas, nivel ni XP
     showDeathModal();
+  }
+}
+
+// Curado por día completo: si hoy (día de semana) completaste todo lo exigido, +CLEAN_DAY_HEAL (una vez)
+function maybeCleanDayHeal() {
+  const p = state.player;
+  const today = todayStr();
+  const dow = new Date().getDay();
+  if (dow === 0 || dow === 6) return;        // findes no cuentan
+  if (p.lastHealDay === today) return;        // ya sanaste hoy
+  let req = 0, done = 0;
+  for (const h of state.habits) {
+    if (h.flexible || !habitRequiredOn(h, today)) continue;
+    req++;
+    if (habitDoneToday(h)) done++;
+  }
+  if (req > 0 && done === req) {
+    p.lastHealDay = today;
+    if (p.hp < MAX_HP) {
+      p.hp = Math.min(MAX_HP, p.hp + CLEAN_DAY_HEAL);
+      toast(`¡Día completo! +${CLEAN_DAY_HEAL} de vida`, "gain", ICONS.heart);
+    }
   }
 }
 
@@ -409,7 +430,6 @@ function checkAchievements() {
     while (p.xp >= xpNeeded(p.level)) {
       p.xp -= xpNeeded(p.level);
       p.level++;
-      p.hp = MAX_HP;
       leveled = true;
     }
     save();
@@ -489,7 +509,7 @@ function celebrateLevelUp() {
     <div class="modal-inner celebrate">
       <div class="big-ico" style="color:var(--gold)">${ICONS.trophy}</div>
       <h3>¡Nivel ${p.level}!</h3>
-      <p>Ahora eres <strong>${esc(heroTitle(p.level))}</strong>. Tu vida se restauró por completo.</p>
+      <p>Ahora eres <strong>${esc(heroTitle(p.level))}</strong>. Un paso más en tu progreso.</p>
       <p class="gold-line">¡Sigue así, ${esc(p.name)}!</p>
       <div class="modal-actions"><button class="btn btn-primary" data-close>¡Genial!</button></div>
     </div>`);
@@ -499,9 +519,9 @@ function showDeathModal() {
   openModal(`
     <div class="modal-inner celebrate">
       <div class="big-ico" style="color:var(--hp)">${ICONS.skull}</div>
-      <h3>Has caído en batalla…</h3>
-      <p>Tu vida llegó a 0. Pierdes <strong>1 nivel</strong> y todas tus monedas, pero tu vida se restaura.</p>
-      <p class="gold-line">Toda leyenda tiene tropiezos. ¡Levántate!</p>
+      <h3>Te quedaste sin energía…</h3>
+      <p>Tu vida llegó a 0 y <strong>se restaura por completo</strong>. No perdés monedas ni nivel — es un llamado de atención para volver al ritmo.</p>
+      <p class="gold-line">Todo héroe se recupera. ¡A retomar!</p>
       <div class="modal-actions"><button class="btn btn-primary" data-close>Continuar</button></div>
     </div>`);
 }
@@ -569,11 +589,12 @@ function runCron() {
   for (const d of datesBetween(state.lastCron, today)) {
     if (restActive(d)) continue; // día de descanso: no hay daño ni se rompen rachas
     const dow = parseDateStr(d).getDay();
+    if (dow === 0 || dow === 6) continue; // sábados y domingos no cuentan (días de descanso)
     for (const h of state.habits) {
       if (h.flexible) continue; // sin exigencia diaria: solo mandan sus metas semanales/mensuales
       if (!habitScheduledOn(h, d)) continue;
       if (!habitActiveOn(h, d) || (h.createdAt || "") > d) continue; // materia fuera de cursada
-      const done = d === state.lastCron ? habitDoneToday(h) : false;
+      const done = !!(h.log && h.log[d]);
       if (!done) {
         dmg += DMG_MISSED_HABIT;
         missed++;
@@ -611,19 +632,16 @@ function runCron() {
       while (p.xp >= xpNeeded(p.level)) {
         p.xp -= xpNeeded(p.level);
         p.level++;
-        p.hp = MAX_HP;
         leveled = true;
       }
     }
   }
-  if (leveled) events.push({ kind: "level", text: `¡Subiste al nivel ${p.level}! Vida restaurada.` });
+  p.hp = Math.min(MAX_HP, p.hp); // los premios no suben la vida por encima del máximo
+  if (leveled) events.push({ kind: "level", text: `¡Subiste al nivel ${p.level}!` });
   if (p.hp <= 0) {
     p.deaths++;
-    p.level = Math.max(1, p.level - 1);
-    p.xp = 0;
-    p.coins = 0;
-    p.hp = MAX_HP;
-    events.push({ kind: "death", text: "Tu vida llegó a 0: pierdes 1 nivel y tus monedas. Vida restaurada." });
+    p.hp = MAX_HP;   // se restaura la vida; sin perder monedas, nivel ni XP
+    events.push({ kind: "death", text: "Tu vida llegó a 0: se restaura por completo, sin perder monedas ni nivel." });
   }
 
   // 5) Limpiar registros muy viejos (conservar ~13 meses)
@@ -1003,6 +1021,7 @@ function toggleHabit(id) {
     ungrant(xp, coins, `habit:${h.id}`);
     healBosses(h.id, xp);
   }
+  maybeCleanDayHeal();
   checkAchievements();
   save();
   renderAll();
@@ -1032,6 +1051,7 @@ function logTime(id, minutes, subject) {
   h.sessions.push({ id: sid, d: todayStr(), min, subject: subject || null });
   grant(xp, coins, `${fmtMin(h.todayMinutes)} hoy${m > 1 ? ` ×${m.toFixed(1)}` : ""}${subject ? ` · ${subject}` : ""}`, `habit:${h.id}`);
   damageBosses(h.id, xp);
+  maybeCleanDayHeal();
   checkAchievements();
   save();
   renderAll();
@@ -1584,12 +1604,15 @@ function renderTienda() {
       <div class="card-list">
         ${state.rewards.map(r => `
           <div class="card reward-card">
-            <div class="reward-icon">${ICONS.gift}</div>
+            <div class="reward-icon" ${r.heal ? 'style="color:var(--hp)"' : ""}>${r.heal ? ICONS.heart : ICONS.gift}</div>
             <div class="card-body">
               <div class="card-title">${esc(r.title)}</div>
-              <div class="card-meta">${r.timesBought ? `<span>Canjeada ${r.timesBought} ${r.timesBought === 1 ? "vez" : "veces"}</span>` : ""}</div>
+              <div class="card-meta">
+                ${r.heal ? `<span style="color:var(--hp)">${ICONS.heart}restaura ${r.heal} de vida</span>` : ""}
+                ${r.timesBought ? `<span>Canjeada ${r.timesBought} ${r.timesBought === 1 ? "vez" : "veces"}</span>` : ""}
+              </div>
             </div>
-            <button class="buy-btn" data-act="buy-reward" data-id="${r.id}" ${p.coins < r.cost ? "disabled" : ""}
+            <button class="buy-btn" data-act="buy-reward" data-id="${r.id}" ${(p.coins < r.cost || (r.heal && p.hp >= MAX_HP)) ? "disabled" : ""}
               aria-label="Comprar ${esc(r.title)} por ${r.cost} monedas">${ICONS.coin}${r.cost}</button>
             <button class="icon-btn" data-act="edit-reward" data-id="${r.id}" aria-label="Editar ${esc(r.title)}">${ICONS.pencil}</button>
           </div>`).join("")}
@@ -1600,12 +1623,19 @@ function renderTienda() {
 function buyReward(id) {
   const r = state.rewards.find(x => x.id === id);
   if (!r || state.player.coins < r.cost) return;
+  // Poción: si ya tenés la vida al máximo, no dejar malgastar monedas
+  if (r.heal && state.player.hp >= MAX_HP) { toast("Ya tenés la vida al máximo", "info", ICONS.heart); return; }
   state.player.coins -= r.cost;
   state.player.coinsSpent += r.cost;
   state.player.rewardsBought++;
   r.timesBought = (r.timesBought || 0) + 1;
   recordLedger(`reward:${r.id}`, 0, -r.cost);
-  toast(`¡Disfruta: ${r.title}!`, "gain", ICONS.gift);
+  if (r.heal) {
+    state.player.hp = Math.min(MAX_HP, state.player.hp + r.heal);
+    toast(`+${r.heal} de vida`, "gain", ICONS.heart);
+  } else {
+    toast(`¡Disfruta: ${r.title}!`, "gain", ICONS.gift);
+  }
   checkAchievements();
   save();
   renderAll();
@@ -2012,7 +2042,7 @@ function habitForm(habit) {
           <input type="number" id="inpGoalMMin" value="${goalVal(h, h.goalMMin)}" min="0" step="any" inputmode="decimal" placeholder="—">
         </div>
       </div>
-      <div class="hint" id="goalsHint" style="margin:-4px 0 12px">Vacío = sin objetivo. Si alcanzas la meta al cerrar la semana/mes, cobras el premio; si no llegas al mínimo, pagas la multa y pierdes vida (−4 HP semanal, −8 mensual).</div>
+      <div class="hint" id="goalsHint" style="margin:-4px 0 12px">Vacío = sin objetivo. Si alcanzas la meta al cerrar la semana/mes, cobras el premio; si no llegas al mínimo, pagas la multa y pierdes vida (−4 HP semanal, −16 mensual).</div>
       <div class="goal-fields">
         <div class="field" id="f-bonus">
           <label for="inpBonus">Premio semanal (monedas)</label>
