@@ -93,6 +93,7 @@ const ICONS = {
   history: I('<path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/>'),
   chevronL: I('<path d="m15 18-6-6 6-6"/>'),
   chevronR: I('<path d="m9 18 6-6-6-6"/>'),
+  minus: I('<path d="M5 12h14"/>'),
   dumbbell: I('<path d="m6.5 6.5 11 11"/><path d="m21 21-1-1"/><path d="m3 3 1 1"/><path d="m18 22 4-4"/><path d="m2 6 4-4"/><path d="m3 10 7-7"/><path d="m14 21 7-7"/>'),
 };
 
@@ -179,6 +180,7 @@ function mkHabit(o) {
     totalMinutes: 0, log: {}, createdAt: todayStr(),
     trackSubject: false,   // estudio: pide "¿de qué materia?" al registrar
     trackExercises: false, // gimnasio: permite anotar ejercicios (series/reps/peso)
+    multi: false,          // check: se puede sumar varias veces por día (contador)
     sessions: [],          // detalle por sesión: {id, d, min?, subject?, exercises?, note?}
     ...o,
   };
@@ -200,7 +202,7 @@ function defaultState() {
     habits: [
       mkHabit({ title: "Estudiar", notes: "1 a 2 h por día · mínimo 30 min", days: [1, 2, 3, 4, 5], mode: "tiempo", payout: 10, goalW: 450, goalWMin: 150, bonus: 25, penalty: 15, trackSubject: true }),
       mkHabit({ title: "Meditar", notes: "10 min al día · mínimo 5", difficulty: "facil", mode: "tiempo", payout: 18, defaultMin: 10, goalW: 70, goalWMin: 35, bonus: 10, penalty: 5 }),
-      mkHabit({ title: "Ir al gimnasio", notes: "Mínimo 3 por semana · 5 = excelente", difficulty: "dificil", flexible: true, payout: 12, goalW: 5, goalWMin: 3, bonus: 30, penalty: 20, trackExercises: true }),
+      mkHabit({ title: "Ir al gimnasio", notes: "Mínimo 3 por semana · 5 = excelente", difficulty: "dificil", flexible: true, payout: 12, goalW: 5, goalWMin: 3, bonus: 30, penalty: 20, trackExercises: true, multi: true }),
       mkHabit({ title: "Clase de Renta Fija", notes: "Lunes · 16 clases · 4 faltas permitidas (75%)", days: [1], payout: 10, goalM: 4, goalMMin: 3, bonus: 10, penalty: 15, startDate: "2026-08-03", endDate: "2026-11-30",
         dates: ["2026-08-03","2026-08-10","2026-08-22","2026-08-24","2026-08-31","2026-09-07","2026-09-14","2026-09-21","2026-09-28","2026-10-05","2026-10-19","2026-10-26","2026-11-02","2026-11-09","2026-11-16","2026-11-30"] }),
       mkHabit({ title: "Clase de Riesgo Crediticio", notes: "Martes · 18 clases · 4 faltas permitidas (75%)", days: [2], payout: 10, goalM: 4, goalMMin: 3, bonus: 10, penalty: 15, startDate: "2026-08-04", endDate: "2026-11-24",
@@ -284,6 +286,10 @@ function normalizeState(st) {
     h.defaultMin = (Number.isFinite(Number(h.defaultMin)) && h.defaultMin >= 1) ? Math.round(h.defaultMin) : 30;
     h.trackSubject = !!h.trackSubject;
     h.trackExercises = !!h.trackExercises;
+    h.multi = !!h.multi;
+    h.streak = Number.isFinite(h.streak) ? h.streak : 0;
+    h.best = Number.isFinite(h.best) ? h.best : 0;
+    h.completedToday = !!h.completedToday;
     h.sessions = Array.isArray(h.sessions) ? h.sessions : [];
   }
   st.subjects = Array.isArray(st.subjects) && st.subjects.length ? st.subjects : ["Renta Fija", "Riesgo Crediticio", "Microeconomía", "Derivados I"];
@@ -296,6 +302,11 @@ function normalizeState(st) {
       if (/gimnasio|gym/i.test(h.title)) h.trackExercises = true;
     }
     st.migratedFlags = true;
+  }
+  // Migración 2: el gimnasio existente pasa a poder sumarse varias veces por día
+  if (!st.migratedFlags2) {
+    for (const h of st.habits) if (/gimnasio|gym/i.test(h.title) && h.mode !== "tiempo") h.multi = true;
+    st.migratedFlags2 = true;
   }
   st.bosses = Array.isArray(st.bosses) ? st.bosses : [];
   for (const b of st.bosses) {
@@ -844,6 +855,7 @@ function renderHabitos() {
     const d = DIFF[h.difficulty] || DIFF.normal;
     const done = habitDoneToday(h);
     const isTime = h.mode === "tiempo";
+    const cnt = (!isTime && h.log) ? (h.log[today] || 0) : 0;  // veces hoy (hábitos multi)
     const fmtV = v => isTime ? fmtMin(v) : v;
     const wSum = (h.goalW || h.goalWMin) ? habitSumRange(h, wStart, addDays(wStart, 7)) : 0;
     const mSum = (h.goalM || h.goalMMin) ? habitSumRange(h, mStart, `${nextMonthKey(monthKey(today))}-01`) : 0;
@@ -862,12 +874,16 @@ function renderHabitos() {
     };
     const canBackfill = !isTime && !sleeping && missedRecentDays(h).length > 0;
     return `
-    <div class="card ${!isTime && done ? "is-done" : ""} ${sleeping ? "is-sleeping" : ""}">
+    <div class="card ${!isTime && done && !h.multi ? "is-done" : ""} ${sleeping ? "is-sleeping" : ""}">
       ${sleeping ? `
       <div class="check-btn" style="opacity:.25" aria-hidden="true">${ICONS.calendar}</div>` : isTime ? `
       <button class="check-btn time-btn ${done ? "is-checked" : ""}" data-act="log-time" data-id="${h.id}"
         aria-label="Registrar tiempo de ${esc(h.title)}">
         ${ICONS.clock}
+      </button>` : activeToday && h.multi ? `
+      <button class="check-btn ${cnt > 0 ? "is-checked" : ""}" data-act="inc-habit" data-id="${h.id}"
+        aria-label="Sumar una vez ${esc(h.title)} (hoy: ${cnt})">
+        ${cnt > 0 ? `<span class="cnt">${cnt}</span>` : ICONS.plus}
       </button>` : activeToday ? `
       <button class="check-btn ${done ? "is-checked" : ""}" data-act="toggle-habit" data-id="${h.id}"
         aria-label="${done ? "Desmarcar" : "Completar"} ${esc(h.title)}" aria-pressed="${done}">
@@ -882,6 +898,7 @@ function renderHabitos() {
           <span class="payout" aria-label="Paga ${habitPayout(h)} monedas${isTime ? " por hora" : ""}">${ICONS.coin}+${habitPayout(h)}${isTime ? "/h" : ""}</span>
           ${isTime && h.todayMinutes ? `<span class="mins">${ICONS.clock}${fmtMin(h.todayMinutes)} hoy</span>` : ""}
           ${h.trackExercises && gymSession(h, today)?.exercises.length ? `<span class="mins">${ICONS.dumbbell}${gymSession(h, today).exercises.length} ejerc. hoy</span>` : ""}
+          ${h.multi && cnt > 0 ? `<span class="mins">${ICONS.check}${cnt}× hoy</span>` : ""}
           ${goalChip(wSum, h.goalW, h.goalWMin, "sem")}
           ${goalChip(mSum, h.goalM, h.goalMMin, "mes")}
           ${h.flexible ? `<span class="due" title="Sin exigencia diaria: mandan sus metas">flexible</span>` : ""}
@@ -892,6 +909,7 @@ function renderHabitos() {
           ${WEEK.map(w => `<span class="day-pill ${h.days.includes(w.dow) ? "on" : ""}">${w.l}</span>`).join("")}
         </div>
       </div>
+      ${h.multi && cnt > 0 && !sleeping ? `<button class="icon-btn" data-act="dec-habit" data-id="${h.id}" aria-label="Quitar una vez de ${esc(h.title)}">${ICONS.minus}</button>` : ""}
       ${h.trackExercises && !sleeping ? `<button class="icon-btn" data-act="exercises" data-id="${h.id}" aria-label="Anotar ejercicios de ${esc(h.title)}">${ICONS.dumbbell}</button>` : ""}
       ${canBackfill ? `<button class="icon-btn" data-act="backfill" data-id="${h.id}" aria-label="Completar día pasado de ${esc(h.title)}">${ICONS.history}</button>` : ""}
       <button class="icon-btn" data-act="edit-habit" data-id="${h.id}" aria-label="Editar ${esc(h.title)}">${ICONS.pencil}</button>
@@ -1025,6 +1043,50 @@ function toggleHabit(id) {
     healBosses(h.id, xp);
   }
   maybeCleanDayHeal();
+  checkAchievements();
+  save();
+  renderAll();
+}
+
+/* ---------- Hábitos "multi": se pueden sumar varias veces por día ---------- */
+function incHabit(id) {
+  const h = state.habits.find(x => x.id === id);
+  if (!h || h.mode === "tiempo") return;
+  const t = todayStr();
+  const first = ((h.log && h.log[t]) || 0) === 0;
+  h.log[t] = ((h.log && h.log[t]) || 0) + 1;
+  h.completedToday = true;
+  if (first) { h.streak++; h.best = Math.max(h.best || 0, h.streak); }
+  const m = streakMult(h.streak);
+  const coins = Math.round(habitPayout(h) * m);
+  const xp = rewardFor(REWARD_HABIT, h.difficulty).xp;
+  state.player.totalCompleted++;
+  grant(xp, coins, `${h.log[t]}× hoy${m > 1 ? ` ×${m.toFixed(1)}` : ""}`, `habit:${h.id}`);
+  damageBosses(h.id, xp);
+  maybeCleanDayHeal();
+  checkAchievements();
+  save();
+  renderAll();
+}
+
+function decHabit(id) {
+  const h = state.habits.find(x => x.id === id);
+  if (!h || h.mode === "tiempo") return;
+  const t = todayStr();
+  const cur = (h.log && h.log[t]) || 0;
+  if (cur <= 0) return;
+  const m = streakMult(h.streak);
+  const coins = Math.round(habitPayout(h) * m);
+  const xp = rewardFor(REWARD_HABIT, h.difficulty).xp;
+  h.log[t] = cur - 1;
+  if (h.log[t] <= 0) {
+    delete h.log[t];
+    h.completedToday = false;
+    h.streak = Math.max(0, h.streak - 1);
+  }
+  state.player.totalCompleted = Math.max(0, state.player.totalCompleted - 1);
+  ungrant(xp, coins, `habit:${h.id}`);
+  healBosses(h.id, xp);
   checkAchievements();
   save();
   renderAll();
@@ -1842,7 +1904,7 @@ function dayDetail(date) {
   for (const h of state.habits) {
     if (!(h.log && h.log[date])) continue;
     if (h.mode !== "tiempo") {
-      let line = esc(h.title);
+      let line = esc(h.title) + (h.multi && h.log[date] > 1 ? ` <span class="day-subj">×${h.log[date]}</span>` : "");
       const gs = h.trackExercises ? gymSession(h, date) : null;
       if (gs && gs.exercises.length) line += ` <span class="day-subj">· ${gs.exercises.map(fmtExercise).map(esc).join(", ")}</span>`;
       hechos.push(line);
@@ -2049,6 +2111,12 @@ function habitForm(habit) {
         <input type="number" id="inpDefMin" value="${h.defaultMin || 30}" min="1" max="1440" inputmode="numeric">
         <div class="hint">El valor que aparece precargado al tocar el reloj (podés cambiarlo cada vez).</div>
       </div>
+      <div class="field" id="f-multi">
+        <label for="inpMulti" style="display:flex;align-items:center;gap:9px;font-weight:700;font-size:14.5px;color:var(--text-dim);cursor:pointer">
+          <input type="checkbox" id="inpMulti" ${h.multi ? "checked" : ""} style="width:20px;height:20px;accent-color:var(--violet-strong)"> Se puede sumar varias veces por día
+        </label>
+        <div class="hint">Para hábitos como el gimnasio: si lo hacés más de una vez en el día (ej. yoga y después gym), sumás con “+”. Cada vez cuenta para tu meta.</div>
+      </div>
       <p class="section-label" style="margin-top:18px">Objetivos y premio extra (opcional)</p>
       <div class="goal-fields">
         <div class="field">
@@ -2098,6 +2166,7 @@ function habitForm(habit) {
       ? "Tarifa por hora: se paga proporcional (ej. 10/h → 30 min pagan 5)."
       : "Cuántas monedas te paga este hábito cada vez que lo completes.";
     $("#f-defmin", modal).style.display = time ? "" : "none";
+    $("#f-multi", modal).style.display = time ? "none" : "";
     $("#daysHint", modal).textContent = flex
       ? "Días en los que puede hacerse (faltar no quita vida)."
       : "Si no lo completas un día programado, pierdes vida.";
@@ -2151,6 +2220,7 @@ function habitForm(habit) {
       difficulty: segValue(modal, "diff") || "normal",
       mode,
       flexible: segValue(modal, "flex") === "flex",
+      multi: mode !== "tiempo" && $("#inpMulti", modal).checked,
       payout,
       defaultMin: (() => { const n = Math.round(Number($("#inpDefMin", modal).value)); return (Number.isFinite(n) && n >= 1 && n <= 1440) ? n : 30; })(),
       startDate,
@@ -2576,6 +2646,8 @@ document.addEventListener("click", (e) => {
   const { act, id, mid } = btn.dataset;
   const actions = {
     "toggle-habit": () => toggleHabit(id),
+    "inc-habit": () => incHabit(id),
+    "dec-habit": () => decHabit(id),
     "log-time": () => timeLogForm(state.habits.find(x => x.id === id)),
     "exercises": () => exerciseForm(state.habits.find(x => x.id === id)),
     "backfill": () => backfillForm(state.habits.find(x => x.id === id)),

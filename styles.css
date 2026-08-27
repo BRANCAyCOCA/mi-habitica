@@ -244,6 +244,7 @@ h1, h2, h3 { font-family: var(--font-display); font-weight: 700; letter-spacing:
 /* Hábitos por tiempo: el reloj siempre es visible e invita a registrar */
 .check-btn.time-btn { color: var(--text-faint); }
 .check-btn.time-btn.is-checked { color: #fff; }
+.check-btn .cnt { font-family: var(--font-display); font-size: 20px; font-weight: 800; }
 
 .card-body { flex: 1; min-width: 0; }
 .card-title { font-weight: 700; font-size: 16px; overflow-wrap: break-word; }
