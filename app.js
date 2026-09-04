@@ -9,7 +9,9 @@ const STORAGE_KEY = "mi-aventura-v1";
 const MAX_HP = 50;
 const XP_PER_LEVEL = 150;    // XP fijo por nivel (odómetro parejo; el nivel no da ventajas)
 const CLEAN_DAY_HEAL = 5;    // vida que recuperás al completar todo lo del día (días de semana)
-const DEATH_LEVEL_LOSS = 3;  // niveles que perdés si la vida llega a 0 (no perdés monedas)
+const DEATH_LEVEL_LOSS = 2;  // niveles que perdés si la vida llega a 0 (no perdés monedas)
+const LEVEL_DISCOUNT_PER = 0.02;  // descuento en tienda por nivel
+const LEVEL_DISCOUNT_CAP = 0.40;  // tope del descuento
 const DIFF = {
   facil:   { label: "Fácil",   mult: 1,   color: "#4ade80" },
   normal:  { label: "Normal",  mult: 1.5, color: "#facc15" },
@@ -1649,12 +1651,17 @@ function gastosModal() {
     </div>`);
 }
 
+// Descuento de tienda por nivel (tope). El precio efectivo baja con el nivel.
+function levelDiscount() { return Math.min((state.player.level || 1) * LEVEL_DISCOUNT_PER, LEVEL_DISCOUNT_CAP); }
+function rewardCost(r) { return Math.max(1, Math.round(r.cost * (1 - levelDiscount()))); }
+
 function renderTienda() {
   const v = $("#view-tienda");
   const p = state.player;
+  const descPct = Math.round(levelDiscount() * 100);
   v.innerHTML = `
     <div class="view-head">
-      <div><h2>Tienda</h2><p class="sub">Canjea tus monedas por gustos reales</p></div>
+      <div><h2>Tienda</h2><p class="sub">${descPct > 0 ? `Nivel ${p.level}: <strong style="color:var(--green)">−${descPct}%</strong> en todo` : "Canjea tus monedas por gustos reales"}</p></div>
       <button class="btn btn-primary btn-sm" data-act="new-reward">${ICONS.plus}Nueva</button>
     </div>
     <button class="spend-strip" data-act="gastos">
@@ -1667,34 +1674,37 @@ function renderTienda() {
         <small>Crea recompensas: “ver una película”, “pedir comida”, “1 hora de videojuegos”…</small>
       </div>` : `
       <div class="card-list">
-        ${state.rewards.map(r => `
+        ${state.rewards.map(r => { const cost = rewardCost(r); return `
           <div class="card reward-card">
             <div class="reward-icon" ${r.heal ? 'style="color:var(--hp)"' : ""}>${r.heal ? ICONS.heart : ICONS.gift}</div>
             <div class="card-body">
               <div class="card-title">${esc(r.title)}</div>
               <div class="card-meta">
                 ${r.heal ? `<span style="color:var(--hp)">${ICONS.heart}restaura ${r.heal} de vida</span>` : ""}
+                ${cost < r.cost ? `<span>antes ${r.cost}</span>` : ""}
                 ${r.timesBought ? `<span>Canjeada ${r.timesBought} ${r.timesBought === 1 ? "vez" : "veces"}</span>` : ""}
               </div>
             </div>
-            <button class="buy-btn" data-act="buy-reward" data-id="${r.id}" ${(p.coins < r.cost || (r.heal && p.hp >= MAX_HP)) ? "disabled" : ""}
-              aria-label="Comprar ${esc(r.title)} por ${r.cost} monedas">${ICONS.coin}${r.cost}</button>
+            <button class="buy-btn" data-act="buy-reward" data-id="${r.id}" ${(p.coins < cost || (r.heal && p.hp >= MAX_HP)) ? "disabled" : ""}
+              aria-label="Comprar ${esc(r.title)} por ${cost} monedas">${ICONS.coin}${cost}</button>
             <button class="icon-btn" data-act="edit-reward" data-id="${r.id}" aria-label="Editar ${esc(r.title)}">${ICONS.pencil}</button>
-          </div>`).join("")}
+          </div>`; }).join("")}
       </div>
     `}`;
 }
 
 function buyReward(id) {
   const r = state.rewards.find(x => x.id === id);
-  if (!r || state.player.coins < r.cost) return;
+  if (!r) return;
+  const cost = rewardCost(r);   // precio con descuento por nivel
+  if (state.player.coins < cost) return;
   // Poción: si ya tenés la vida al máximo, no dejar malgastar monedas
   if (r.heal && state.player.hp >= MAX_HP) { toast("Ya tenés la vida al máximo", "info", ICONS.heart); return; }
-  state.player.coins -= r.cost;
-  state.player.coinsSpent += r.cost;
+  state.player.coins -= cost;
+  state.player.coinsSpent += cost;
   state.player.rewardsBought++;
   r.timesBought = (r.timesBought || 0) + 1;
-  recordLedger(`reward:${r.id}`, 0, -r.cost);
+  recordLedger(`reward:${r.id}`, 0, -cost);
   if (r.heal) {
     state.player.hp = Math.min(MAX_HP, state.player.hp + r.heal);
     toast(`+${r.heal} de vida`, "gain", ICONS.heart);
