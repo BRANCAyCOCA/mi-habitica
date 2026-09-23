@@ -1127,6 +1127,7 @@ function logTime(id, minutes, subject) {
 /* ---------- Registrar días pasados (hasta 2 días atrás) ---------- */
 // Si el cron ya te castigó por ese día, se te devuelve la vida perdida
 function refundMissedDamage(h, date) {
+  if (date >= todayStr()) return;   // hoy todavía no fue penalizado: no hay vida que devolver
   if (!habitRequiredOn(h, date)) return;
   const p = state.player;
   p.hp = Math.min(MAX_HP, p.hp + DMG_MISSED_HABIT);
@@ -1158,15 +1159,19 @@ function logTimePast(h, minutes, date, subject) {
 
 // Marca como completado un día pasado (hábitos al completar)
 function completePast(h, date) {
-  if (h.log && h.log[date]) return;
+  if (!h.multi && h.log && h.log[date]) return;  // check simple ya hecho ese día
+  const first = !(h.log && h.log[date]);
+  h.log[date] = ((h.log && h.log[date]) || 0) + 1; // multi: suma; simple: 1
+  if (date === todayStr()) h.completedToday = true; // marcar hoy mantiene la tarjeta en sync
   const xp = rewardFor(REWARD_HABIT, h.difficulty).xp;
-  h.log[date] = 1;
   state.player.totalCompleted++;
-  refundMissedDamage(h, date);
-  if (h.flexible) { h.streak++; h.best = Math.max(h.best || 0, h.streak); }
+  if (first) {
+    refundMissedDamage(h, date);
+    if (h.flexible) { h.streak++; h.best = Math.max(h.best || 0, h.streak); }
+  }
   recalcStreak(h);
   const m = streakMult(h.streak);
-  grant(xp, Math.round(habitPayout(h) * m), `completado el ${fmtShortDate(date)}`, `habit:${h.id}`);
+  grant(xp, Math.round(habitPayout(h) * m), `${h.multi ? "+1" : "completado"} el ${fmtShortDate(date)}`, `habit:${h.id}`);
   damageBosses(h.id, xp);
   checkAchievements();
   save();
@@ -1235,7 +1240,7 @@ function undoTimeLog(id) {
   renderAll();
 }
 
-function timeLogForm(h) {
+function timeLogForm(h, fixedDate) {
   if (!h) return;
   const rate = habitPayout(h);
   const today = todayStr();
@@ -1253,14 +1258,15 @@ function timeLogForm(h) {
     <div class="modal-inner">
       <div class="modal-head"><h3>Registrar tiempo</h3>
         <button class="icon-btn" data-close aria-label="Cerrar">${ICONS.x}</button></div>
-      <p class="confirm-text"><strong>${esc(h.title)}</strong> · paga ${rate} monedas por hora${h.todayMinutes ? ` · hoy llevas ${fmtMin(h.todayMinutes)}` : ""}</p>
+      <p class="confirm-text"><strong>${esc(h.title)}</strong> · paga ${rate} monedas por hora${fixedDate ? ` · ${cap(parseDateStr(fixedDate).toLocaleDateString("es", { weekday: "long", day: "numeric", month: "short" }))}` : h.todayMinutes ? ` · hoy llevas ${fmtMin(h.todayMinutes)}` : ""}</p>
+      ${fixedDate ? "" : `
       <div class="field">
         <label>¿Qué día?</label>
         <div class="seg wrap" data-seg="qday">
           ${dayOpts.map((o, i) => `<button type="button" data-val="${o.val}" class="${i === 0 ? "on" : ""}">${o.label}</button>`).join("")}
         </div>
         <div class="hint" id="dayHint"></div>
-      </div>
+      </div>`}
       <div class="field">
         <label>Rápido</label>
         ${segHTML("qmin", [{ val: "15", label: "15 min" }, { val: "30", label: "30 min" }, { val: "45", label: "45 min" }, { val: "60", label: "1 h" }], "")}
@@ -1293,6 +1299,7 @@ function timeLogForm(h) {
     const m = Math.round(Number(inp.value));
     hint.textContent = Number.isFinite(m) && m >= 1
       ? `${m} min te pagan ${Math.round(rate * m / 60)} monedas.` : "";
+    if (!dayHint) return;
     const day = segValue(modal, "qday");
     dayHint.textContent = day !== today
       ? `Se registrará para el ${fmtShortDate(day)}${habitRequiredOn(h, day) && !(h.log && h.log[day]) ? " y recuperas la vida perdida ese día" : ""}.`
@@ -1300,7 +1307,7 @@ function timeLogForm(h) {
   };
   updateHint();
   inp.addEventListener("input", updateHint);
-  $(`.seg[data-seg="qday"]`, modal).addEventListener("click", updateHint);
+  $(`.seg[data-seg="qday"]`, modal)?.addEventListener("click", updateHint);
   $(`.seg[data-seg="qmin"]`, modal).addEventListener("click", e => {
     const b = e.target.closest("button");
     if (b) { inp.value = b.dataset.val; updateHint(); }
@@ -1308,7 +1315,7 @@ function timeLogForm(h) {
   $("#btnLog", modal).addEventListener("click", () => {
     const m = Math.round(Number(inp.value));
     if (!Number.isFinite(m) || m < 1) { $("#f-min", modal).classList.add("has-err"); inp.focus(); return; }
-    const day = segValue(modal, "qday") || today;
+    const day = fixedDate || segValue(modal, "qday") || today;
     const subject = h.trackSubject ? (segValue(modal, "subj") || null) : null;
     modal.close();
     if (day === today) logTime(h.id, m, subject);
@@ -1936,6 +1943,14 @@ function dayDetail(date) {
   const gastadoDia = gastos.reduce((s, g) => s + g.amt, 0);
   const xp = state.history[date] || 0;
   const lista = [...hechos, ...todosHechos];
+  // Hábitos que se pueden marcar/registrar para ese día (algo que te olvidaste)
+  const hoy = todayStr();
+  const markable = date <= hoy ? state.habits.filter(h => {
+    if ((h.createdAt || "") > date || !habitActiveOn(h, date)) return false;
+    if (h.mode === "tiempo") return true;                       // tiempo: cualquier día activo
+    if (h.multi) return true;                                    // multi (gym): sumar cualquier día
+    return habitScheduledOn(h, date) && !(h.log && h.log[date]); // check simple: día programado y no hecho
+  }) : [];
   openModal(`
     <div class="modal-inner">
       <div class="modal-head"><h3>${cap(parseDateStr(date).toLocaleDateString("es", { weekday: "long", day: "numeric", month: "long" }))}</h3>
@@ -1948,6 +1963,10 @@ function dayDetail(date) {
       ${lista.length ? `<p class="section-label">Hecho ese día</p><div class="detail-list">${lista.map(x => `<div class="detail-row2"><span>${x}</span></div>`).join("")}</div>`
         : `<p class="confirm-text">Ese día no registraste actividad.</p>`}
       ${gastos.length ? `<p class="section-label">Gastado ese día</p><div class="detail-list">${gastos.map(g => `<div class="detail-row2"><span>${esc(g.name)}</span><span class="red">−${g.amt}</span></div>`).join("")}</div>` : ""}
+      ${markable.length ? `<p class="section-label">Marcar algo que olvidaste</p><div class="detail-list">${markable.map(h => `
+        <div class="detail-row2"><span>${esc(h.title)}${h.mode !== "tiempo" && h.multi && h.log && h.log[date] ? ` <span class="day-subj">(${h.log[date]}×)</span>` : ""}</span>
+          <button class="btn btn-ghost btn-sm" data-act="${h.mode === "tiempo" ? "marktime-past" : "mark-past"}" data-id="${h.id}" data-date="${date}">${h.mode === "tiempo" ? `${ICONS.clock}Registrar` : h.multi ? `${ICONS.plus}Sumar` : `${ICONS.check}Marcar`}</button>
+        </div>`).join("")}</div>` : ""}
       <div class="modal-actions"><button class="btn btn-ghost" data-close>Cerrar</button></div>
     </div>`);
 }
@@ -2653,7 +2672,7 @@ document.addEventListener("click", (e) => {
 
   const btn = e.target.closest("[data-act]");
   if (!btn) return;
-  const { act, id, mid } = btn.dataset;
+  const { act, id, mid, date } = btn.dataset;
   const actions = {
     "toggle-habit": () => toggleHabit(id),
     "inc-habit": () => incHabit(id),
@@ -2681,6 +2700,8 @@ document.addEventListener("click", (e) => {
     "stat": () => statDetailModal(btn.dataset.stat),
     "gastos": () => gastosModal(),
     "day-detail": () => dayDetail(btn.dataset.date),
+    "mark-past": () => { completePast(state.habits.find(x => x.id === id), date); dayDetail(date); },
+    "marktime-past": () => timeLogForm(state.habits.find(x => x.id === id), date),
     "cal-prev": () => { calMonth = prevMonthKey(calMonth || monthKey(todayStr())); renderAll(); },
     "cal-next": () => { calMonth = nextMonthKey(calMonth || monthKey(todayStr())); renderAll(); },
     "cal-mode": () => { calMode = btn.dataset.mode; renderAll(); },
